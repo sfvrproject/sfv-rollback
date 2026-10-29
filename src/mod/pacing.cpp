@@ -18,6 +18,7 @@ constexpr ULONGLONG kLapseMs = 250;    // pacing stays on this long after the dr
 
 std::atomic<float> g_ahead{0};
 std::atomic<ULONGLONG> g_leadAt{0};
+std::atomic<uint32_t> g_leads{0}; // the driver's frames so far: one pace per frame
 std::mutex g_statsMutex;
 PaceStats g_stats;
 
@@ -65,6 +66,7 @@ void PaceLead(float ahead)
 {
     g_ahead = ahead;
     g_leadAt = GetTickCount64();
+    g_leads++;
 }
 
 void PaceFrame()
@@ -76,10 +78,17 @@ void PaceFrame()
     // frame here: with a stretch the frame runs past the engine's period by
     // that much; without one there is no wait and the engine paces as before.
     static double last = 0;
+    static uint32_t pacedLead = 0;
     if (GetTickCount64() - g_leadAt.load() > kLapseMs) {
         last = 0; // off: the next match starts afresh
         return;
     }
+    // Some machines poll input twice per battle frame (WT-PC-01: a stretch
+    // counted twice per frame, the second call waiting out a whole period):
+    // only the first poll after a netplay frame paces.
+    const uint32_t leads = g_leads.load();
+    if (leads == pacedLead) return;
+    pacedLead = leads;
     const float stretch = StretchFor(g_ahead);
     const double now = NowMs();
     const bool reset = last == 0 || now - last > kResetAfterMs;

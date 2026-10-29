@@ -49,13 +49,13 @@ RemoteLog 0 -FromNow
 $remote = New-Object System.Collections.ArrayList
 
 $mash = if ($NoMash) { '' } else { 'mash 11; ' }
-& (Join-Path $PSScriptRoot 'cmd.ps1') -Instance 0 -Commands "delay $Delay; ${mash}pick $($Picks[0]) 0 1 0 1 1; stage $Stage; host" -WaitMs 2000 | Out-Null
+& (Join-Path $PSScriptRoot 'cmd.ps1') -Instance 0 -Commands "server 127.0.0.1:$($serverAddress.Split(':')[1]); delay $Delay; ${mash}pick $($Picks[0]) 0 1 0 1 1; stage $Stage; host" -WaitMs 2000 | Out-Null
 $code = (Since | Select-String 'hosting, code (\S+)' | Select-Object -Last 1).Matches.Groups[1].Value
 if (-not $code) { Say 'no code: hosting failed (see the log)'; exit 1 }
 Say "code $code"
 $mash = if ($NoMash) { '' } else { 'mash 22; ' }
 # Its instance 0 is the session's second player.
-Remote 'cmd' @{ instance = 0; commands = "name Player 2; delay $Delay; ${mash}pick $($Picks[1]) 0 1 0 1 1; join $code" } | Out-Null
+Remote 'cmd' @{ instance = 0; commands = "server $serverAddress; name Player 2; delay $Delay; ${mash}pick $($Picks[1]) 0 1 0 1 1; join $code" } | Out-Null
 
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 $decided = 0
