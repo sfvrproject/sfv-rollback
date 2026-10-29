@@ -61,6 +61,10 @@ lockstep_presentation=1
 ; 1: back to the main menu when a session ends (the other player left,
 ; leave), ready for the next one.
 menu_after_match=1
+; 1: match recordings keep every frame's region hashes (several MB a match,
+; for desync hunting between test PCs). 0: only around desyncs, with a
+; checksum for every frame (a few hundred KB; what players should send).
+full_recordings=0
 ; 1: when the two games' frozen starting states differ (memory the game has
 ; not initialised yet), the joiner takes the host's values before the
 ; session starts (pointer-like values and masked words excepted).

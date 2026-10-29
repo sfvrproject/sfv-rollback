@@ -103,6 +103,7 @@ endif()
 # Core: game-agnostic netplay driver, replay format, recorder and verifier.
 add_library(sfvcore STATIC
   src/core/state.cpp
+  src/core/compress.cpp
   src/core/replay_file.cpp
   src/core/recorder.cpp
   src/core/verifier.cpp
@@ -114,7 +115,7 @@ add_library(sfvcore STATIC
   src/core/mux.cpp
   src/core/spectate.cpp)
 target_include_directories(sfvcore PUBLIC src)
-target_link_libraries(sfvcore PUBLIC GekkoNet)
+target_link_libraries(sfvcore PUBLIC GekkoNet PRIVATE Cabinet) # Cabinet: compressapi.h
 
 # Deterministic toy fighter and in-memory network used to exercise the core
 # without the game.

@@ -283,8 +283,17 @@ private:
         if (f >= rf_.FrameCount() || rf_.hashes.empty()) return;
         std::vector<uint64_t> hashes(game.Regions().size());
         HashRegions(game.Regions(), hashes.data());
-        Compare(game, hashes.data(), rf_.FrameHashes(f), f);
         framesChecked_++;
+        if (rf_.HasRegionHashes(f)) {
+            Compare(game, hashes.data(), rf_.FrameHashes(f), f);
+            return;
+        }
+        // A compact recording: the frame's checksum only (it needs the same
+        // regions in the same order, so a mismatch names no region).
+        if (FoldChecksum(hashes.data(), hashes.size()) == rf_.FrameChecksum(f)) return;
+        if (firstMismatch_ < 0) firstMismatch_ = f;
+        mismatchFrames_++;
+        if (logged_++ < 12) Log("replay: frame %d's checksum differs from the recording (no region hashes kept)", f);
     }
 
     // Region by region, by content: each region here must have an equal

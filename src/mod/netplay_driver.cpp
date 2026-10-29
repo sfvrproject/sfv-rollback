@@ -1920,7 +1920,8 @@ private:
         for (wchar_t c : reportDir_) dir += c < 128 ? static_cast<char>(c) : '_';
         const std::string path = dir + "\\" + name;
         std::string error;
-        if (!SaveReplay(rf, path, &error)) Log("netplay: cannot save %s: %s", path.c_str(), error.c_str());
+        const ReplayDetail detail = options_.fullRecordings ? ReplayDetail::Full : ReplayDetail::Compact;
+        if (!SaveReplay(rf, path, &error, detail)) Log("netplay: cannot save %s: %s", path.c_str(), error.c_str());
         else Log("netplay: saved %s", path.c_str());
         return path;
     }

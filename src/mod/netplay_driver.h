@@ -60,6 +60,7 @@ struct NetplayOptions {
     int mashFrom = 0;                      // testing: ... from this session frame on
     int dumpEvery = 600;                   // full state dumps in match recordings: every N confirmed frames
     int maxDumps = 24;                     // ... at most this many
+    bool fullRecordings = false;           // recordings keep every frame's region hashes, not only around desyncs (testing)
     bool menuAfterMatch = true;            // back to the main menu when a session ends or on leave
     bool reconcileStart = true;            // joiner takes the host's values where the frozen states differ (lobby.h)
     bool allowSpectators = true;           // host: others may watch

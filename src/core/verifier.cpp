@@ -92,8 +92,12 @@ VerifyResult VerifyReplay(IGame& game, const ReplayFile& replay, const VerifyOpt
         result.framesChecked = f + 1;
         if (options.onFrame) options.onFrame(f);
 
-        result.regions = Compare(replay.FrameHashes(f), hashes.data(), regionCount);
-        if (!result.regions.empty()) {
+        // Frames without region hashes (compact recordings) compare checksums.
+        if (replay.HasRegionHashes(f)) result.regions = Compare(replay.FrameHashes(f), hashes.data(), regionCount);
+        else result.regions.clear();
+        const bool diverged = !result.regions.empty() ||
+                              (!replay.HasRegionHashes(f) && FoldChecksum(hashes.data(), regionCount) != replay.FrameChecksum(f));
+        if (diverged) {
             result.status = VerifyResult::Status::Diverged;
             result.frame = f;
             result.message = "simulation with the recorded inputs does not reproduce the recorded state";

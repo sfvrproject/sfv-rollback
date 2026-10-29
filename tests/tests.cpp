@@ -162,6 +162,63 @@ void TestReplayRoundTrip()
     CHECK(!DeserializeReplay(bytes.data(), bytes.size() - 6, &back, &error));
 }
 
+// Through the compact format and back.
+ReplayFile Compacted(const ReplayFile& rf, size_t* size = nullptr)
+{
+    const std::vector<uint8_t> bytes = SerializeReplay(rf, ReplayDetail::Compact);
+    if (size) *size = bytes.size();
+    ReplayFile back;
+    std::string error;
+    if (!DeserializeReplay(bytes.data(), bytes.size(), &back, &error)) std::printf("    compact read failed: %s\n", error.c_str());
+    return back;
+}
+
+void TestCompactRecording()
+{
+    ReplayFile rf;
+    rf.regions = {{"a", 16, {}}, {"b", 4, {}}, {"c", 1000, {}}};
+    rf.initialHashes = {1, 2, 3};
+    for (int f = 0; f < 1000; f++) {
+        const uint64_t h[3] = {1, 1000u + f, 3u + f / 100};
+        rf.SetFrame(f, FrameInputs{{static_cast<PackedInput>(f % 7), 0}}, h);
+    }
+    rf.finalThrough = 990;
+    rf.events.push_back({500, ReplayEventType::Desync, 0xAAAA, 0xBBBB});
+    rf.events.push_back({505, ReplayEventType::Desync, 0xCCCC, 0xDDDD});
+    // A state dump compresses: game state is mostly zeros and repeats.
+    std::vector<uint8_t> state(200000, 0);
+    for (size_t i = 0; i < state.size(); i += 64) state[i] = static_cast<uint8_t>(i / 64);
+    rf.dumps.push_back({500, "desync", state});
+
+    size_t compactSize = 0;
+    const ReplayFile back = Compacted(rf, &compactSize);
+    const size_t fullSize = SerializeReplay(rf, ReplayDetail::Full).size();
+    std::printf("    full %zu bytes, compact %zu bytes\n", fullSize, compactSize);
+    CHECK(compactSize < fullSize && compactSize < 20000);
+    CHECK(back.inputs == rf.inputs && back.events.size() == 2 && back.finalThrough == 990);
+    CHECK(back.dumps.size() == 1 && back.dumps[0].bytes == state);
+    // Region hashes from 120 frames before the first desync to 30 after the last.
+    CHECK(!back.HasRegionHashes(379) && back.HasRegionHashes(380) && back.HasRegionHashes(535) && !back.HasRegionHashes(536));
+    CHECK(back.HasRegionHashes(-1));
+    bool same = true;
+    for (int f = 0; f < rf.FrameCount(); f++) {
+        same &= back.FrameChecksum(f) == rf.FrameChecksum(f);
+        if (back.HasRegionHashes(f)) same &= std::memcmp(back.FrameHashes(f), rf.FrameHashes(f), 3 * 8) == 0;
+    }
+    CHECK(same);
+    // A compact file saved again (by a tool) keeps what it has.
+    const std::vector<uint8_t> again = SerializeReplay(back, ReplayDetail::Full);
+    ReplayFile twice;
+    std::string error;
+    CHECK(DeserializeReplay(again.data(), again.size(), &twice, &error));
+    CHECK(!twice.HasRegionHashes(379) && twice.HasRegionHashes(400) && twice.FrameChecksum(100) == rf.FrameChecksum(100));
+    // A full file reads back like the live recording.
+    const std::vector<uint8_t> full = SerializeReplay(rf, ReplayDetail::Full);
+    ReplayFile fullBack;
+    CHECK(DeserializeReplay(full.data(), full.size(), &fullBack, &error));
+    CHECK(fullBack.hashes == rf.hashes && fullBack.hashesKept.empty());
+}
+
 void TestCleanMatch()
 {
     MockMatchOptions mo;
@@ -188,6 +245,12 @@ void TestCleanMatch()
     const auto stress = Verify(r.recording[0], MockBug::None, 0, 7);
     PrintVerify("P1 stress 7", stress, r.recording[0]);
     CHECK(stress.status == VerifyResult::Status::Match);
+    // Without desyncs a compact recording has checksums only, and still verifies.
+    const ReplayFile compact = Compacted(r.recording[0]);
+    CHECK(!compact.HasRegionHashes(0));
+    const auto compactStraight = Verify(compact, MockBug::None, 0, 0);
+    CHECK(compactStraight.status == VerifyResult::Status::Match);
+    CHECK(DiffReplays(compact, Compacted(r.recording[1])).firstStateMismatch < 0);
 
     // A report survives the trip through a file.
     const std::string path = "test_clean_p1.sfvr";
@@ -287,6 +350,19 @@ void TestMachineSpecificValue()
     CHECK(v1.status == VerifyResult::Status::Match);
     CHECK(v2.status == VerifyResult::Status::Diverged);
     CHECK(v2.frame == d.firstStateMismatch);
+
+    // The compact recordings players send tell the same story.
+    size_t fullSize = SerializeReplay(r.recording[0]).size(), compactSize = 0;
+    const ReplayFile c1 = Compacted(r.recording[0], &compactSize);
+    const ReplayFile c2 = Compacted(r.recording[1]);
+    std::printf("    P1's recording: full %zu bytes, compact %zu bytes\n", fullSize, compactSize);
+    const DiffReport dc = DiffReplays(c1, c2);
+    CHECK(dc.firstStateMismatch == d.firstStateMismatch);
+    CHECK(HasRegion(c1, dc.regionsAtMismatch, "fighters"));
+    const auto cv1 = Verify(c1, MockBug::MachineSpecificValue, 0, 0);
+    const auto cv2 = Verify(c2, MockBug::MachineSpecificValue, 0, 0);
+    CHECK(cv1.status == VerifyResult::Status::Match && cv1.framesChecked == v1.framesChecked);
+    CHECK(cv2.status == VerifyResult::Status::Diverged && cv2.frame == v2.frame);
 }
 
 void TestEffectUsesGameplayRng()
@@ -575,6 +651,7 @@ int main()
         {"hashes", TestHashes},
         {"ignore mask", TestIgnoreMask},
         {"replay file round trip", TestReplayRoundTrip},
+        {"compact recording", TestCompactRecording},
         {"clean match", TestCleanMatch},
         {"setup mismatch", TestSetupMismatch},
         {"state outside snapshot", TestStateOutsideSnapshot},

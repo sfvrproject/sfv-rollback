@@ -143,6 +143,7 @@ Config LoadConfig(const std::wstring& path, const std::wstring& dllDir, const st
     n.roundEndRollback = ReadInt(path, L"netplay", L"round_end_rollback", 1) != 0;
     n.menuAfterMatch = ReadInt(path, L"netplay", L"menu_after_match", 1) != 0;
     n.reconcileStart = ReadInt(path, L"netplay", L"reconcile_start", 1) != 0;
+    n.fullRecordings = ReadInt(path, L"netplay", L"full_recordings", 0) != 0;
     ReadNetplayChoices(path, n, false);
     if (!panelPath.empty()) ReadNetplayChoices(panelPath, n, true);
     n.randomSetup = ReadInt(path, L"netplay", L"random", 0) != 0;

@@ -724,6 +724,13 @@ void RunNetCommand(const std::string& line)
         ss >> o.dumpEvery >> o.maxDumps;
         Log("netplay: recordings dump the state every %d frames, at most %d times", o.dumpEvery, o.maxDumps);
     }
+    else if (cmd == "recordings") {
+        // recordings full|compact: which frames' region hashes the next saved recordings keep.
+        std::string what;
+        ss >> what;
+        if (what == "full" || what == "compact") o.fullRecordings = what == "full";
+        Log("netplay: recordings are %s", o.fullRecordings ? "full (every frame's region hashes)" : "compact (region hashes around desyncs)");
+    }
     else if (cmd == "pick") {
         std::string code;
         int costume = 0, color = 1, comment = 0, vskill = 1, vtrigger = 1;

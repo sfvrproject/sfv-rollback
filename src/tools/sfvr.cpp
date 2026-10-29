@@ -5,6 +5,7 @@
 //   sfvr diff    <a.sfvr> <b.sfvr>
 //   sfvr peers   <a.sfvr> <b.sfvr> [--initial | --pointers [--max-frame N]] [--raw] [--write noise.txt] [--show region]
 //   sfvr verify  <file> [--stress N] [--every K] [--dump out.bin] [--mock-bug B] [--machine-value V]
+//   sfvr compact <file> <out.sfvr>
 //   sfvr export  <file> <out-dir>
 //   sfvr demo    <out-dir>
 //
@@ -42,6 +43,7 @@ int Usage()
                  "  sfvr verify  <file> [--stress N] [--every K] [--dump out.bin]\n"
                  "               [--mock-bug none|outside-snapshot|machine-value|effect-rng] [--machine-value V]\n"
                  "  sfvr changes <file> <region size>\n"
+                 "  sfvr compact <file> <out.sfvr>\n"
                  "  sfvr export  <file> <out-dir>\n"
                  "  sfvr demo    <out-dir>\n");
     return 2;
@@ -119,6 +121,10 @@ int CmdInfo(int argc, char** argv)
                 rf.setup.stageVariant, rf.setup.roundsToWin, rf.setup.timerSeconds, rf.setup.seed);
     std::printf("frames          %d recorded, confirmed through %d\n", rf.FrameCount(), rf.finalThrough);
     std::printf("state           %zu regions, %" PRIu64 " bytes\n", rf.RegionCount(), stateBytes);
+    int kept = 0;
+    for (int f = 0; f < rf.FrameCount(); f++) kept += rf.HasRegionHashes(f) ? 1 : 0;
+    if (kept == rf.FrameCount()) std::printf("region hashes   every frame (full recording)\n");
+    else std::printf("region hashes   %d of %d frames (compact recording: around desyncs only)\n", kept, rf.FrameCount());
 
     unsigned rollbacks = 0, maxRollback = 0, desyncs = 0;
     for (const auto& e : rf.events) {
@@ -169,6 +175,33 @@ int CmdInputs(int argc, char** argv)
                     InputText(rf.inputs[f].p[1]).c_str(), rf.FrameChecksum(f), f > rf.finalThrough ? "  (unconfirmed)" : "");
     }
     return 0;
+}
+
+// Rewrites a recording in the current format, keeping region hashes only
+// around its desyncs (what the mod saves for players).
+int CmdCompact(int argc, char** argv)
+{
+    if (argc < 2) return Usage();
+    ReplayFile rf;
+    if (!Load(argv[0], rf)) return 1;
+    std::string error;
+    if (!SaveReplay(rf, argv[1], &error, ReplayDetail::Compact)) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return 1;
+    }
+    ReplayFile back;
+    if (!LoadReplay(argv[1], &back, &error)) {
+        std::fprintf(stderr, "cannot read back %s: %s\n", argv[1], error.c_str());
+        return 1;
+    }
+    int mismatches = 0, kept = 0;
+    for (int f = 0; f < rf.FrameCount(); f++) {
+        mismatches += back.FrameChecksum(f) != rf.FrameChecksum(f) ? 1 : 0;
+        kept += back.HasRegionHashes(f) ? 1 : 0;
+    }
+    std::printf("wrote %s: %d frames, region hashes kept for %d, %d checksum mismatches\n", argv[1], rf.FrameCount(),
+                kept, mismatches);
+    return mismatches ? 1 : 0;
 }
 
 int CmdDiff(int argc, char** argv)
@@ -230,6 +263,7 @@ int CmdChanges(int argc, char** argv)
         int changes = 0, first = -1, last = -1;
         const uint64_t* prev = rf.FrameHashes(-1);
         for (int f = 0; f < rf.FrameCount(); f++) {
+            if (!rf.HasRegionHashes(f)) continue; // compact: between kept frames only
             const uint64_t* h = rf.FrameHashes(f);
             if (h[i] != prev[i]) {
                 changes++;
@@ -339,6 +373,7 @@ int CmdLearnPeers(int argc, char** argv)
         int changes = 0;
         const int lastFrame = std::min(a.FrameCount(), b.FrameCount()) - 1;
         for (int f = -1; f <= lastFrame && changes < 40; f++) {
+            if (!a.HasRegionHashes(f) || !b.HasRegionHashes(f)) continue;
             const uint64_t* ha = a.FrameHashes(f);
             const uint64_t* hb = b.FrameHashes(f);
             for (const auto& [size, idx] : bySize) {
@@ -375,6 +410,7 @@ int CmdLearnPeers(int argc, char** argv)
             for (const auto& [size, idx] : bySize) {
                 const uint64_t* h0 = rf->FrameHashes(-1);
                 for (int f = 0; f < rf->FrameCount(); f++) {
+                    if (!rf->HasRegionHashes(f)) continue;
                     const uint64_t* h = rf->FrameHashes(f);
                     bool changed = false;
                     for (size_t i : idx) changed |= h[i] != h0[i];
@@ -661,6 +697,7 @@ int main(int argc, char** argv)
     if (cmd == "find") return CmdFind(argc - 2, argv + 2);
     if (cmd == "images") return CmdImagePointers(argc - 2, argv + 2);
     if (cmd == "region") return CmdRegion(argc - 2, argv + 2);
+    if (cmd == "compact") return CmdCompact(argc - 2, argv + 2);
     if (cmd == "export") return CmdExport(argc - 2, argv + 2);
     if (cmd == "verify") return CmdVerify(argc - 2, argv + 2);
     if (cmd == "demo") return CmdDemo(argc - 2, argv + 2);

@@ -31,7 +31,7 @@ in `CMakeLists.txt` here and `COMMIT` in sfvr-server's `deploy/install.sh`.
 | Offline boot: no server login, straight to the main menu | done (`[boot] offline=1`), about 25 s from launch |
 | In-game overlay panel (Dear ImGui over Direct3D 11; F1 or Back + Start) | host, join, match code, picks (with character names), stage, cancel, leave, live match numbers, a status strip, gamepad navigation, choices saved per instance, debug tab |
 | Jump straight into a battle (no menus) with the host's setup: character, costume, colour, comment, V-Skill, V-Trigger, stage | done (`battlenow`; netplay uses it) from the main menu (about 8 s, no character select scene), stage select, a running battle or its results (about 5 s); back to the main menu when a session ends |
-| `.sfvr` recordings: inputs, per-region hash trail, events, state dumps (start, desync, every 600 frames), CRC | done |
+| `.sfvr` recordings (format 3): inputs, a checksum per frame, per-region hashes around desyncs (compact, the default: about 270 KB a match) or for every frame (full), events, compressed state dumps (start, desync, every 600 frames), CRC | done |
 | Deterministic playback (`VerifyReplay`), `sfvr diff` / `sfvr peers` for cross-machine desyncs | done |
 | Shared noise mask (`data/sfv_noise.txt`): junk, pointer and engine-clock words left out of checksums | learned for every character at frame 0, and across V-Skill / V-Trigger I and II while fighting (`scripts/scan-loadouts.ps1`) |
 | In-game rollback stress test (one process) | passes |

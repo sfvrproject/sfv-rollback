@@ -174,6 +174,13 @@ DiffReport DiffReplays(const ReplayFile& a, const ReplayFile& b)
     const size_t regionCount = a.RegionCount();
     auto mismatchedRegions = [&](int frame) {
         std::vector<size_t> out;
+        // A compact recording keeps region hashes only around its desyncs.
+        if (!a.HasRegionHashes(frame) || !b.HasRegionHashes(frame)) {
+            rep.notes.push_back("no region hashes for frame " + std::to_string(frame) +
+                                " in both files (compact recordings keep them only around desyncs): "
+                                "the differing regions are unknown");
+            return out;
+        }
         // A region mismatches when no region of the same size on the other
         // side has its hash (the peers' region orders may differ).
         const uint64_t* ha = a.FrameHashes(frame);
