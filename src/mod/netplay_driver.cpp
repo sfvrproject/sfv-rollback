@@ -4,6 +4,7 @@
 #include "core/netplay.h"
 #include "core/replay_file.h"
 #include "core/spectate.h"
+#include "core/update_info.h"
 #include "core/state.h"
 #include "mod/battle_driver.h"
 #include "mod/battle_setup.h"
@@ -611,6 +612,7 @@ private:
             case WeyveEvent::Type::RoomJoined:
                 if (host_) {
                     weyve_->SetRoomData("build", Hex64(build_));
+                    weyve_->SetRoomData("version", modVersion_); // for the joiner's message when builds differ
                     weyve_->SetRoomData("protocol", std::to_string(lobby::kProtocol));
                     MatchCode mc;
                     mc.kind = MatchCode::Kind::Room;
@@ -663,8 +665,23 @@ private:
             if (v.host && build != v.data.end()) {
                 joinedRoom_ = false;
                 if (build->second != Hex64(build_)) {
-                    Log("netplay: the room's build is %s, this one %s", build->second.c_str(), Hex64(build_).c_str());
-                    EndSession("rejected: different mod build");
+                    // Say which side should update (rooms of older builds have no version).
+                    const auto version = v.data.find("version");
+                    const std::string theirs = version == v.data.end() ? "" : version->second;
+                    Log("netplay: the room's build is %s (SFVR %s), this one %s (SFVR %s)", build->second.c_str(),
+                        theirs.empty() ? "?" : theirs.c_str(), Hex64(build_).c_str(), modVersion_.c_str());
+                    std::string why = "rejected: different mod build";
+                    if (theirs.empty() || CompareVersions(theirs, modVersion_) < 0) {
+                        why = "the host runs an older SFVR" + (theirs.empty() ? std::string() : " (" + theirs + ")") +
+                              "; they need to update";
+                    }
+                    else if (CompareVersions(theirs, modVersion_) > 0) {
+                        why = "the host runs SFVR " + theirs + "; update from Settings, Updates";
+                    }
+                    else {
+                        why = "the host runs another build of SFVR " + theirs;
+                    }
+                    EndSession(why);
                     return;
                 }
                 peer_ = v.host;

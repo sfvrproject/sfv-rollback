@@ -5,7 +5,9 @@
 #include "core/match_code.h"
 #include "core/mux.h"
 #include "core/replay_diff.h"
+#include "core/json.h"
 #include "core/replay_file.h"
+#include "core/update_info.h"
 #include "core/spectate.h"
 #include "core/state.h"
 #include "core/verifier.h"
@@ -16,6 +18,10 @@
 #include <thread>
 #include <cstdio>
 #include <cstring>
+
+#include <windows.h>
+
+#include <bcrypt.h>
 #include <string>
 
 using namespace sfv;
@@ -645,6 +651,74 @@ void TestSpectator()
     }
 }
 
+void TestUpdateInfo()
+{
+    JsonValue j;
+    std::string error;
+    CHECK(ParseJson(R"({"a": [1, 2.5, -3e2], "b": "x\u00e9\n", "c": {"d": true, "e": null}})", &j, &error));
+    CHECK(j.Find("a") && j.Find("a")->array.size() == 3 && j.Find("a")->array[2].number == -300);
+    CHECK(j.Str("b") == "x\xC3\xA9\n" && j.Find("c")->Find("d")->boolean);
+    CHECK(!ParseJson(R"({"a": [1, 2})", &j, &error) && !ParseJson(R"({"a": 1} x)", &j, &error));
+
+    const char* doc = R"({"product": "SFVR", "version": "0.2.0", "published": "2026-11-02", "notes": "Fixes.",
+        "files": [{"path": "sfv_rollback.dll", "size": 3, "url": "releases/0.2.0/sfv_rollback.dll",
+                   "sha256": "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD"}]})";
+    UpdateInfo info;
+    CHECK(ParseUpdateInfo(doc, &info, &error));
+    CHECK(info.version == "0.2.0" && info.files.size() == 1 && info.files[0].size == 3);
+    // SHA-256 of "abc", lowercased on reading.
+    const uint8_t abc[] = {'a', 'b', 'c'};
+    CHECK(Sha256Hex(abc, 3) == info.files[0].sha256);
+    std::string bad = doc;
+    bad.replace(bad.find("sfv_rollback.dll"), 16, "..\\\\evil.dll");
+    CHECK(!ParseUpdateInfo(bad, &info, &error));
+
+    CHECK(SafeUpdatePath("sfv_rollback.dll") && SafeUpdatePath("sfv_noise.txt") && SafeUpdatePath("xinput1_3.dll"));
+    CHECK(!SafeUpdatePath("sfv_rollback.ini") && !SafeUpdatePath("../x.dll") && !SafeUpdatePath("a\\b.dll") &&
+          !SafeUpdatePath("C:x.dll") && !SafeUpdatePath("x.exe") && !SafeUpdatePath(""));
+
+    CHECK(CompareVersions("0.1.0-prototype", "0.1.0") < 0 && CompareVersions("0.1.0", "0.1.1") < 0);
+    CHECK(CompareVersions("0.10.0", "0.9.9") > 0 && CompareVersions("0.2", "0.2.0") == 0);
+    CHECK(CompareVersions("0.1.1-test", "0.1.0-prototype") > 0 && CompareVersions("1.0.0-a", "1.0.0-b") < 0);
+
+    CHECK(ResolveUrl("https://sfvr.example/update.json", "releases/a.dll") == "https://sfvr.example/releases/a.dll");
+    CHECK(ResolveUrl("https://sfvr.example/x/update.json", "/a.dll") == "https://sfvr.example/a.dll");
+    CHECK(ResolveUrl("https://sfvr.example/update.json", "http://other/a.dll") == "http://other/a.dll");
+    CHECK(Base64Decode("aGVsbG8=") == std::vector<uint8_t>({'h', 'e', 'l', 'l', 'o'}));
+}
+
+void TestUpdateSignature()
+{
+    // A key pair as the release script makes one, through the same API.
+    BCRYPT_KEY_HANDLE key = nullptr;
+    CHECK(BCRYPT_SUCCESS(BCryptGenerateKeyPair(BCRYPT_ECDSA_P256_ALG_HANDLE, &key, 256, 0)));
+    CHECK(BCRYPT_SUCCESS(BCryptFinalizeKeyPair(key, 0)));
+    uint8_t blob[sizeof(BCRYPT_ECCKEY_BLOB) + 64];
+    ULONG size = 0;
+    CHECK(BCRYPT_SUCCESS(BCryptExportKey(key, nullptr, BCRYPT_ECCPUBLIC_BLOB, blob, sizeof(blob), &size, 0)));
+    uint8_t pub[64];
+    std::memcpy(pub, blob + sizeof(BCRYPT_ECCKEY_BLOB), 64);
+
+    const std::string text = R"({"product": "SFVR", "version": "9.9.9"})";
+    uint8_t digest[32];
+    BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, (PUCHAR)text.data(), (ULONG)text.size(), digest, 32);
+    uint8_t sig[64];
+    CHECK(BCRYPT_SUCCESS(BCryptSignHash(key, nullptr, digest, 32, sig, 64, &size, 0)) && size == 64);
+    BCryptDestroyKey(key);
+
+    const auto* bytes = reinterpret_cast<const uint8_t*>(text.data());
+    CHECK(VerifySignature(bytes, text.size(), sig, 64, pub));
+    std::string tampered = text;
+    tampered[tampered.size() - 3] = '8';
+    CHECK(!VerifySignature(reinterpret_cast<const uint8_t*>(tampered.data()), tampered.size(), sig, 64, pub));
+    uint8_t otherSig[64];
+    std::memcpy(otherSig, sig, 64);
+    otherSig[5] ^= 1;
+    CHECK(!VerifySignature(bytes, text.size(), otherSig, 64, pub));
+    const uint8_t noKey[64] = {};
+    CHECK(!VerifySignature(bytes, text.size(), sig, 64, noKey));
+}
+
 int main()
 {
     const Test tests[] = {
@@ -663,6 +737,8 @@ int main()
         {"mux and net conditions", TestMuxAndConditions},
         {"wrong build refused", TestWrongBuildIsRefused},
         {"spectator", TestSpectator},
+        {"update info", TestUpdateInfo},
+        {"update signature", TestUpdateSignature},
     };
     for (const auto& t : tests) {
         const int before = g_failures;

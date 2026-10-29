@@ -14,6 +14,7 @@
 #include "mod/log.h"
 #include "mod/probes.h"
 #include "mod/sfv_game.h"
+#include "mod/updater.h"
 #include "mod/status.h"
 #include "mod/stress_driver.h"
 
@@ -114,6 +115,7 @@ DWORD WINAPI ModMain(LPVOID self)
     InstallControl(dir + L"\\sfv_cmd" + suffix + L".txt", config.virtualPads, config.alwaysActive);
     InstallOverlay(panelPath);
     SetOverlayBuild(std::string("SFVR ") + kModVersion);
+    InstallUpdater(dir, kModVersion, Narrow(config.updateUrl), config.updateCheck);
     InstallBattleSetup(image);
     InstallBootProbes(image, config.verbose);
     InstallFreePlayGuard(image);

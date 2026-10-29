@@ -9,6 +9,7 @@
 #include "mod/log.h"
 #include "mod/netplay_driver.h"
 #include "mod/status.h"
+#include "mod/updater.h"
 #include "mod/weyve_service.h"
 
 #include <MinHook.h>
@@ -1111,6 +1112,39 @@ void DrawSettings(bool locked)
         }
     }
     if (!g_packResult.empty()) ImGui::TextColored(kDim, "%s", g_packResult.c_str());
+
+    // Updates from the project site, installed only when asked (updater.h).
+    ImGui::Spacing();
+    Heading("Updates");
+    const UpdateView u = UpdateViewNow();
+    using U = UpdateView::State;
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 440 * g_uiScale);
+    switch (u.state) {
+    case U::Off: ImGui::TextColored(kDim, "Updates are off: %s.", u.message.c_str()); break;
+    case U::Idle: ImGui::TextColored(kDim, "Not checked yet."); break;
+    case U::Checking: ImGui::TextColored(kDim, "Checking for updates..."); break;
+    case U::UpToDate: ImGui::TextColored(kDim, "SFVR %s is the latest.", u.current.c_str()); break;
+    case U::Available:
+        ImGui::TextColored(kGold, "SFVR %s is available%s%s.", u.latest.c_str(), u.published.empty() ? "" : ", from ",
+                           u.published.c_str());
+        if (!u.notes.empty()) ImGui::TextColored(kDim, "%s", u.notes.c_str());
+        ImGui::TextColored(kDim, "Both players need the same version to play each other.");
+        break;
+    case U::Downloading: ImGui::TextColored(kDim, "Downloading SFVR %s...", u.latest.c_str()); break;
+    case U::Ready: ImGui::TextColored(kGreen, "SFVR %s is installed. Restart the game to use it.", u.latest.c_str()); break;
+    case U::Failed: ImGui::TextColored(kRed, "The update failed: %s.", u.message.c_str()); break;
+    }
+    ImGui::PopTextWrapPos();
+    if (u.state == U::Downloading) {
+        const float part = u.total ? static_cast<float>(double(u.done) / double(u.total)) : 0.0f;
+        ImGui::ProgressBar(part, ImVec2(260 * g_uiScale, 0));
+    }
+    if (u.state == U::Available && TileButton("Download and install")) UpdateInstall();
+    if (u.state == U::Available) ImGui::SameLine();
+    if ((u.state == U::Idle || u.state == U::UpToDate || u.state == U::Failed || u.state == U::Available) &&
+        TileButton("Check again")) {
+        UpdateCheck();
+    }
 }
 
 // In a session: the panel's pick, the host's stage and this player's delay
@@ -1816,6 +1850,16 @@ void AddToast(const std::string& text, ImVec4 color = ImVec4(1, 1, 1, 1), int se
 }
 
 // Notices from what changed in the session since the last frame.
+// Once per version the site offers: a toast pointing at Settings.
+void ToastUpdate()
+{
+    static std::string toasted;
+    const UpdateView u = UpdateViewNow();
+    if (u.state != UpdateView::State::Available || u.latest == toasted) return;
+    toasted = u.latest;
+    AddToast("SFVR " + u.latest + " is available: Settings, Updates", kGold, 8);
+}
+
 void ToastChanges(const NetView& now)
 {
     static NetView before;
@@ -2336,6 +2380,8 @@ void Draw(IDXGISwapChain* swapChain)
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     ToastChanges(view);
+    // Not over a match: it waits for a menu.
+    if (OnMenuScreen()) ToastUpdate();
     if (visible) {
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, panelAlpha);
         DrawPanel();

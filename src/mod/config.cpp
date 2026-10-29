@@ -156,6 +156,8 @@ Config LoadConfig(const std::wstring& path, const std::wstring& dllDir, const st
 
     c.reportDir = ReadString(path, L"mod", L"report_dir", L"");
     if (c.reportDir.empty()) c.reportDir = dllDir + L"\\SFVR\\matches";
+    c.updateUrl = ReadString(path, L"update", L"url", L"");
+    c.updateCheck = ReadInt(path, L"update", L"check", 1) != 0;
     return c;
 }
 

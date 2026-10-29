@@ -37,6 +37,10 @@ struct Config {
 
     std::wstring reportDir; // match recordings and logs; default <dll dir>\SFVR\matches (files.h)
 
+    // [update] (updater.h): the site's update info, and whether to check at start
+    std::wstring updateUrl;
+    bool updateCheck = true;
+
     NetplayOptions netplay; // [netplay] and [netsim]
 
     int virtualPads = 0; // XInput pads driven by sfv_cmd.txt, connected at startup
