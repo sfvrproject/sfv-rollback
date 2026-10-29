@@ -1,0 +1,14 @@
+pad 0 a 120 1500
+pad 0 right 120 600
+pad 0 a 120 9000
+pad 0 down 120 600
+pad 0 down 120 600
+pad 0 a 120 2500
+pad 0 a 120 3500
+pad 0 down 120 400
+pad 0 down 120 400
+pad 0 down 120 400
+pad 0 down 120 400
+pad 0 a 120 400
+pad 1 down 120 400
+pad 1 a 120 400

@@ -1,0 +1,186 @@
+diff --git a/Client/include/private/client.h b/Client/include/private/client.h
+index ceccc4a..8db02e2 100644
+--- a/Client/include/private/client.h
++++ b/Client/include/private/client.h
+@@ -60,6 +60,9 @@ namespace Weyvelength {
+ 		bool SendP2P(uint32_t id, const Proto::P2PMessage& msg); // direct to a room member; the first send builds the link, queued until it connects
+ 		bool NextP2P(uint32_t& from, Proto::P2PMessage& out); // one received datagram per call
+ 		bool PeerConnectedP2P(uint32_t id) const; // is a direct link to this member up right now?
++		int PeerLinkPath(uint32_t id) const; // WeyveLinkPath: how the link's selected candidate pair carries it
++		const std::string* TurnHost() const; // the first TURN server handed to us, or null
++		void SetRelayOnly(bool on); // testing: take only a peer's relay candidates, so links go through TURN
+ 
+ 		uint32_t Id() const;  // 0 until the server has assigned one
+ 		const std::string& Name() const; // our own name, as the server accepted it
+@@ -113,6 +116,7 @@ namespace Weyvelength {
+ 		std::unique_ptr<P2PMesh> _mesh;
+ 
+ 		Proto::IceServers _ice; // handed to us by the server; feeds every new link
++		bool _relay_only = false;
+ 
+ 		std::queue<Proto::ServerMessage> _inbox;
+ 		std::queue<std::pair<uint32_t, Proto::P2PMessage>> _p2p_inbox;
+diff --git a/Client/include/weyvelength.h b/Client/include/weyvelength.h
+index ba170f2..ae685ae 100644
+--- a/Client/include/weyvelength.h
++++ b/Client/include/weyvelength.h
+@@ -211,6 +211,21 @@ WEYVE_API bool weyve_send_p2p(WeyveClient* client, uint32_t id, const void* data
+ WEYVE_API const uint8_t* weyve_next_p2p(WeyveClient* client, uint32_t* from, uint32_t* len);
+ WEYVE_API bool weyve_peer_connected(WeyveClient* client, uint32_t id); // is a direct link up right now?
+ 
++// How a link's datagrams travel, from its selected ICE candidate pair.
++typedef enum WeyveLinkPath {
++	WEYVE_LINK_NONE = 0, // no link up
++	WEYVE_LINK_UNKNOWN = 1, // up, but ICE cannot say how
++	WEYVE_LINK_DIRECT = 2, // peer to peer (host or server-reflexive candidates)
++	WEYVE_LINK_RELAYED = 3, // through a TURN relay
++} WeyveLinkPath;
++WEYVE_API WeyveLinkPath weyve_peer_link_path(WeyveClient* client, uint32_t id);
++// The first TURN server the rooms server handed out ("turn.cloudflare.com"), or
++// null without one. Borrowed, valid until the next weyve_poll.
++WEYVE_API const char* weyve_turn_host(const WeyveClient* client);
++// Testing: links built from now on take only the peer's relay candidates, so
++// they connect through TURN or not at all.
++WEYVE_API void weyve_set_relay_only(WeyveClient* client, bool on);
++
+ // --- cached room state ---
+ // Getters below read the client's cache; nothing blocks or hits the network.
+ 
+diff --git a/Client/src/client.cpp b/Client/src/client.cpp
+index d36ce8b..e40708c 100644
+--- a/Client/src/client.cpp
++++ b/Client/src/client.cpp
+@@ -51,11 +51,16 @@ namespace Weyvelength {
+ 
+ 	bool Client::Poll()
+ 	{
+-		if (!_asio->socket.is_open())
++		// the p2p links outlive the server connection: keep polling them
++		if (!_asio->socket.is_open()) {
++			PollPeers();
+ 			return false;
++		}
+ 
+-		if (!DrainServer() || !CarveServer())
++		if (!DrainServer() || !CarveServer()) {
++			PollPeers();
+ 			return false;
++		}
+ 
+ 		PollPeers(); // may queue signal frames; the flush below sends them
+ 		return FlushServer();
+@@ -444,8 +449,10 @@ namespace Weyvelength {
+ 
+ 	bool Client::DisconnectServer()
+ 	{
++		// the room's members and their p2p links stay: whatever runs over the
++		// links (a match) goes on without the server, until the client is
++		// destroyed or leaves
+ 		_asio->socket.close();
+-		ClearRoomState();
+ 		return false;
+ 	}
+ }
+diff --git a/Client/src/p2p_mesh.cpp b/Client/src/p2p_mesh.cpp
+index 2d73cbe..bf47989 100644
+--- a/Client/src/p2p_mesh.cpp
++++ b/Client/src/p2p_mesh.cpp
+@@ -87,6 +87,52 @@ namespace Weyvelength {
+ 		return it != _mesh->links.end() && it->second.connected;
+ 	}
+ 
++	// A selected candidate (an sdp "a=candidate:" line) through a TURN relay.
++	static bool IsRelayCandidate(const char* sdp)
++	{
++		return std::strstr(sdp, " typ relay") != nullptr;
++	}
++
++	int Client::PeerLinkPath(uint32_t id) const
++	{
++		auto it = _mesh->links.find(id);
++		if (it == _mesh->links.end() || !it->second.connected)
++			return 0; // WEYVE_LINK_NONE
++		char local[JUICE_MAX_CANDIDATE_SDP_STRING_LEN] = {};
++		char remote[JUICE_MAX_CANDIDATE_SDP_STRING_LEN] = {};
++		if (juice_get_selected_candidates(it->second.agent, local, sizeof(local), remote, sizeof(remote)) != JUICE_ERR_SUCCESS)
++			return 1; // WEYVE_LINK_UNKNOWN: up, but juice cannot say how
++		// either end allocating on a relay means every datagram crosses it
++		return IsRelayCandidate(local) || IsRelayCandidate(remote) ? 3 : 2; // WEYVE_LINK_RELAYED : WEYVE_LINK_DIRECT
++	}
++
++	const std::string* Client::TurnHost() const
++	{
++		return _ice.turn.empty() ? nullptr : &_ice.turn.front().host;
++	}
++
++	void Client::SetRelayOnly(bool on)
++	{
++		_relay_only = on;
++	}
++
++	// Relay-only testing: a remote description without its non-relay candidates.
++	static std::string KeepRelayCandidates(const std::string& sdp)
++	{
++		std::string out;
++		size_t start = 0;
++		while (start < sdp.size()) {
++			size_t end = sdp.find('\n', start);
++			if (end == std::string::npos)
++				end = sdp.size();
++			const std::string line = sdp.substr(start, end - start);
++			if (line.rfind("a=candidate:", 0) != 0 || IsRelayCandidate(line.c_str()))
++				out += line + "\n";
++			start = end + 1;
++		}
++		return out;
++	}
++
+ 	PeerLink* Client::FindLink(uint32_t id)
+ 	{
+ 		auto it = _mesh->links.find(id);
+@@ -177,7 +223,7 @@ namespace Weyvelength {
+ 			HandleP2PDescription(link, sig);
+ 			break;
+ 		case Proto::P2PSignalKind::Candidate:
+-			if (link)
++			if (link && (!_relay_only || IsRelayCandidate(sig.payload.c_str())))
+ 				juice_add_remote_candidate(link->agent, sig.payload.c_str());
+ 			break;
+ 		case Proto::P2PSignalKind::GatheringDone:
+@@ -207,7 +253,8 @@ namespace Weyvelength {
+ 		}
+ 
+ 		if (!link->remote_set) { // glare aside, apply the remote description once
+-			juice_set_remote_description(link->agent, sig.payload.c_str());
++			const std::string sdp = _relay_only ? KeepRelayCandidates(sig.payload) : sig.payload;
++			juice_set_remote_description(link->agent, sdp.c_str());
+ 			link->remote_set = true;
+ 		}
+ 
+diff --git a/Client/src/weyvelength.cpp b/Client/src/weyvelength.cpp
+index ea38d3e..82110b2 100644
+--- a/Client/src/weyvelength.cpp
++++ b/Client/src/weyvelength.cpp
+@@ -174,6 +174,22 @@ bool weyve_peer_connected(WeyveClient* client, uint32_t id)
+ 	return client->client.PeerConnectedP2P(id);
+ }
+ 
++WeyveLinkPath weyve_peer_link_path(WeyveClient* client, uint32_t id)
++{
++	return (WeyveLinkPath)client->client.PeerLinkPath(id);
++}
++
++const char* weyve_turn_host(const WeyveClient* client)
++{
++	const std::string* host = client->client.TurnHost();
++	return host ? host->c_str() : nullptr;
++}
++
++void weyve_set_relay_only(WeyveClient* client, bool on)
++{
++	client->client.SetRelayOnly(on);
++}
++
+ // --- cached room state ---
+ 
+ uint32_t weyve_id(const WeyveClient* client)

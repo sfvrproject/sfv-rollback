@@ -1,0 +1,6 @@
+build/
+dist/
+*.sfvr
+sfv_rollback.ini
+sfv_rollback.log
+sfv_statemap.bin

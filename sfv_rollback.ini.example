@@ -1,0 +1,98 @@
+; Copy to sfv_rollback.ini next to sfv_rollback.dll
+; (StreetFighterV\Binaries\Win64\). A second game instance on the same PC
+; reads sfv_rollback.1.ini if it exists (see multi_instance).
+
+[mod]
+; probe          hooks, netplay (host/join), desync tooling; the normal mode
+; off            load and verify the exe, nothing else
+; learn_statemap record which state words hold pointers -> sfv_statemap.bin
+mode=probe
+; 1 = more than one game instance on this PC (instance N uses sfv_rollback.N.log,
+; sfv_cmd.N.txt and the window title "[sfv N]"); for local netplay tests
+multi_instance=0
+; report_dir=   (default: reports\ next to the DLL)
+
+[boot]
+; 1: no server login. The title runs its local preparation, then takes the
+; game's own "continue offline" route straight to the main menu (about 25 s
+; from launch; no login attempt, no login dialogs). 0: the game's login, as
+; shipped (about 30 s of waiting, then the dialogs).
+offline=1
+
+[probe]
+; F5 copy state out, F9 copy it back (copy mode, what netplay uses)
+; F6 remember the last ring frame, F10 restore it with the game's own Restore
+savestate_hotkeys=1
+; Offline the game opens no snapshot frames, so its Store tasks do nothing.
+; 1 = open frames with the mod's own ids so the ring fills (needed for F6/F10).
+force_offline_frames=0
+; 1 = set RollbackUnit::enabled if the game left it off.
+force_enable=0
+; Add the InputUnit and BattleFrame counters to the snapshot (needed).
+include_sync_counters=1
+; 1 = log region layouts, call stacks and tick summaries
+verbose=0
+
+[weyve]
+; The Weyvelength rooms server, host[:port].
+; The public one (sfvr-server) when empty or missing.
+; For tests on this PC: scripts/weyve-server.ps1 runs one, server=127.0.0.1:5555.
+server=159.69.32.141:5555
+; Name shown to the other player and spectators (empty: Steam persona name)
+name=
+
+[netplay]
+; weyve match codes XXXX-XXXX: a room on the server above; peer-to-peer
+;       links through ICE (direct UDP, TURN where needed)
+; udp   testing: match codes U-...: host address and port in the code (LAN,
+;       or a forwarded port); udp_host is the address the host writes into it
+transport=weyve
+; Host: others may watch the session (up to 8)
+allow_spectators=1
+udp_port=47001
+udp_host=127.0.0.1
+; frames; the lobby and the post-match screen change it between matches (the
+; prediction window is fixed at 8)
+input_delay=2
+; 1: no prediction (so no rollbacks) outside the fight: intro, round call, KO
+; and round end. Those are not in the game's snapshot; rolling back across them
+; desynced the round start and froze a KO.
+lockstep_presentation=1
+; 1: back to the main menu when a session ends (the other player left,
+; leave), ready for the next one.
+menu_after_match=1
+; 1: when the two games' frozen starting states differ (memory the game has
+; not initialised yet), the joiner takes the host's values before the
+; session starts (pointer-like values and masked words excepted).
+reconcile_start=1
+; This player's own pick (empty: what the menus show). Color, V-Skill and
+; V-Trigger count from 1 as in the menus; comment 0 = Auto.
+character=
+costume=0
+color=1
+comment=0
+vskill=1
+vtrigger=1
+; Host: the stage, by code from the game's stage table (CHN, LDN, NYK, ...;
+; the `stages` command lists them). Empty: the stage the game has prepared.
+stage=
+; Host: random characters and settings for both players (testing)
+random=0
+
+[netsim]
+; Simulated network conditions on what this side sends (testing)
+latency_ms=0
+jitter_ms=0
+loss_pct=0
+
+[control]
+; Virtual XInput pads (from P1) driven by sfv_cmd.txt; see src/mod/control.h.
+; They must exist at startup because the game only looks for pads then.
+virtual_pads=0
+; 1 = the game keeps reading pads while its window is in the background
+always_active=0
+
+[playback]
+file=
+; Resimulate every frame from this many frames back (0 = straight playback).
+stress=0
