@@ -595,8 +595,12 @@ private:
         const State s = GetState();
         if (s == State::Ended || s == State::Idle) return;
         if (s == State::Connecting && now - connectingSince_ > kConnectTimeout) {
+            // No answer at all (a TCP connect that times out) is nearly always
+            // something blocking the port on this side: a firewall or
+            // antivirus, or a network that allows only common ports.
             EndSession(weyve_ && weyve_->View().server != WeyveRoomView::Server::Connected
-                           ? "cannot reach the server " + options_.server
+                           ? "cannot reach the server " + options_.server +
+                                 " (a firewall, antivirus or this network may block its port: allow StreetFighterV.exe, or try another network)"
                            : "no answer from the room");
             return;
         }

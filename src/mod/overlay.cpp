@@ -1519,6 +1519,12 @@ void DrawServerControls()
         std::snprintf(server, sizeof(server), "127.0.0.1:5555");
         use(server);
     }
+    // Back from a test server (players pressed "This PC" and stayed on it).
+    ImGui::SameLine();
+    if (ImGui::Button("Public server")) {
+        std::snprintf(server, sizeof(server), "%s", kDefaultServer);
+        use(server);
+    }
     const NetplayOptions o = NetOptions();
     for (size_t k = 0; k < o.recentServers.size(); k++) {
         if (o.recentServers[k] == o.server) continue;

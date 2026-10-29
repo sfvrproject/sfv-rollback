@@ -18,6 +18,13 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 - A test script's `server` command no longer sticks in the panel's saved
   settings.
 
+### Changed
+
+- When the rooms server does not answer at all, the message says what
+  usually causes it (a firewall, antivirus or a network blocking its port).
+- The panel's Debug tab has a "Public server" button next to "This PC", to
+  get back to the public server after trying a local one.
+
 ## [0.1.2] - 2026-10-29
 
 Smoother matches: the game no longer repeats a frame to keep both sides in
