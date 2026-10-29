@@ -7,22 +7,30 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-29
+
+Smoother matches: the game no longer repeats a frame to keep both sides in
+step, and rollbacks cost less CPU.
+
 ### Changed
 
-- Smoother time sync: the side that runs ahead stretches its frames by a
-  few percent (paced to an exact 60 Hz before the game reads the pads)
-  instead of repeating a whole frame; only a lead of 8 frames or more still
-  drops one. The pace log says how much was stretched.
-- Cheaper rollback bookkeeping: the state checksum's mask is applied word by
-  word only where it is set (same checksums), and a save whose next frame's
-  inputs are already confirmed (the delay covers the latency) skips its state
-  copy (`[netplay] skip_saves`).
+- Time sync stretches frames instead of repeating them: the side that runs
+  ahead makes its frames a few percent longer (a wait right before the game
+  reads the pads, so no input lag) until the other catches up. Only a lead of
+  8 frames or more still drops a whole frame. Before, time sync repeated
+  about ten frames a minute; between two PCs it now repeats none.
+- Cheaper rollback bookkeeping. The state checksum reads the masked words as
+  zero in place and fetches the next memory ahead: about 0.35 ms down to
+  0.1 ms a frame, with the same checksums. A save whose next frame's inputs
+  are already confirmed (the delay covers the latency) keeps its checksum but
+  skips the state copy (`[netplay] skip_saves`).
 
 ### Added
 
 - Every load is checked against the checksum taken when that frame was saved
   (`[netplay] verify_loads`), and a `costs over 600 advances` log line says
-  where the netplay time goes (ticks, replays, hashing, saves, loads).
+  where the netplay time goes (ticks, replays, hashing, saves, loads). The
+  pace log says how much was stretched; the frame drop lines show the wait.
 
 ## [0.1.1] - 2026-10-29
 
