@@ -166,6 +166,16 @@ if(SFV_BUILD_MOD AND WIN32)
     src/mod/udp_transport.cpp
     src/mod/weyve_service.cpp)
   target_link_libraries(sfv_rollback PRIVATE sfvcore minhook imgui weyvelength_client ws2_32 iphlpapi shell32 winhttp)
+
+  # The noise mask goes into the DLL (every copy of a build masks the same
+  # words), as bytes: MSVC caps string literals at 16 KB.
+  set(SFV_NOISE_FILE ${CMAKE_SOURCE_DIR}/data/sfv_noise.txt)
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SFV_NOISE_FILE})
+  file(READ ${SFV_NOISE_FILE} SFV_NOISE_HEX HEX)
+  string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," SFV_NOISE_BYTES "${SFV_NOISE_HEX}")
+  file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/generated/builtin_noise.h
+       CONTENT "#pragma once\n// Generated from data/sfv_noise.txt by CMakeLists.txt.\nnamespace sfv::mod {\ninline constexpr unsigned char kBuiltinNoise[] = {${SFV_NOISE_BYTES}};\n}\n")
+  target_include_directories(sfv_rollback PRIVATE ${CMAKE_BINARY_DIR}/generated)
   if(MSVC)
     # Symbols for crash stacks (scripts/symbolize.py); the code stays optimised.
     target_compile_options(sfv_rollback PRIVATE /Zi)

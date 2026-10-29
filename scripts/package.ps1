@@ -19,7 +19,6 @@ $win = New-Item -ItemType Directory -Force (Join-Path $out 'Win64')
 $repo = New-Item -ItemType Directory -Force (Join-Path $out 'sfv-rollback')
 
 Copy-Item (Join-Path $build 'xinput1_3.dll'), (Join-Path $build 'sfv_rollback.dll') $win
-Copy-Item (Join-Path $root 'data\sfv_noise.txt') $win
 $ini = Get-Content (Join-Path $root 'sfv_rollback.ini.example')
 $serverAddress = if ($Server -match ':') { $Server } else { "${Server}:5555" }
 $ini = $ini -replace '^server=.*$', "server=$serverAddress"
@@ -46,7 +45,7 @@ Both players need the same version to play each other.
 Problems: in the panel, Settings, Logs, "Pack logs to share", then send the
 zip it makes (in Binaries\Win64\SFVR\).
 
-Uninstall: delete xinput1_3.dll, sfv_rollback.dll, sfv_noise.txt and
+Uninstall: delete xinput1_3.dll, sfv_rollback.dll, sfv_noise.txt (0.1.0) and
 sfv_rollback.ini from Binaries\Win64\ (and the SFVR folder, with the logs).
 "@ | Set-Content (Join-Path $out 'INSTALL.txt')
   $zip = Join-Path $root "dist\$name.zip"

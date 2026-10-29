@@ -1210,6 +1210,10 @@ void PreloadTick()
             done = done && (p.code.empty() || InCharaCache(p.code, p.costume, LatestVersion(p.code), y) ||
                             g_preloadTries[p.code + "/" + std::to_string(p.costume)] >= kPreloadMaxTries);
         }
+        // Preloads run at the main menu only. In the lobby over a held results
+        // screen a new pick cannot be preloaded: waiting for it would only hold
+        // the match back (the jump loads it).
+        if (LastScene() != "MainMenuState" && !g_preloading) done = true;
         g_preloadsDone = done;
     }
     if (seen != g_preloadSeen) {

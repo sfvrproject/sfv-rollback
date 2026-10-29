@@ -10,6 +10,9 @@ mode=probe
 ; 1 = more than one game instance on this PC (instance N uses sfv_rollback.N.log,
 ; sfv_cmd.N.txt and the window title "[sfv N]"); for local netplay tests
 multi_instance=0
+; noise_file=sfv_noise.txt   (a noise mask file next to the DLL instead of the
+;   one built in from data\sfv_noise.txt; for learning new words, both peers
+;   need the same file)
 ; report_dir=   (match recordings and logs; default: SFVR\matches next to the DLL)
 
 [boot]

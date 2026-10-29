@@ -1403,10 +1403,13 @@ void DrawLobby(const NetView& v)
     ImGui::PopItemWidth();
     DrawDelaySuggestion(v);
     ImGui::Spacing();
-    if (TileButton(ready ? "Ready##toggle" : "Ready", HalfRow(), ready)) Act([ready] { NetSetReady(!ready); });
+    // Ready locks the pick in until the match starts (netplay_driver.h).
+    ImGui::BeginDisabled(ready);
+    if (TileButton("Ready", HalfRow(), ready)) Act([] { NetSetReady(true); });
+    ImGui::EndDisabled();
     ImGui::SameLine();
     if (TileButton("Leave", -1)) Act([] { NetLeave(); });
-    if (ready) ImGui::TextColored(kDim, "Press Ready again to change your pick.");
+    if (ready) ImGui::TextColored(kDim, "Locked in. The match starts once both players are ready.");
     DrawSessionLine(v);
     SyncChoices(v);
 }
@@ -2014,24 +2017,23 @@ void DrawPlayerBars(const NetView& v)
     }
 }
 
-// A desync in this match: red, at the top, until the match is over.
+// A desync in this match: one small line along the bottom, until the match is
+// over (the recording is in SFVR\matches, named ..._desync.sfvr).
 void DrawDesyncBanner(const NetView& v)
 {
     const ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.16f), ImGuiCond_Always, ImVec2(0.5f, 0));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.55f, 0.05f, 0.05f, 0.85f));
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y - io.DisplaySize.y * 0.012f), ImGuiCond_Always,
+                            ImVec2(0.5f, 1));
+    ImGui::SetNextWindowBgAlpha(0.6f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8 * g_uiScale, 3 * g_uiScale));
     ImGui::Begin("##desync", nullptr,
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    ImGui::PushFont(g_fontHeading);
-    ImGui::Text("DESYNC AT FRAME %d", v.desyncFrame);
-    ImGui::PopFont();
-    std::string file = v.desyncReport;
-    const size_t slash = file.find_last_of("\\/");
-    if (slash != std::string::npos) file = file.substr(slash + 1);
-    ImGui::Text("The games no longer agree. Report saved: %s", file.empty() ? "(saving...)" : file.c_str());
+    ImGui::TextColored(kRed, "Desync at frame %d", v.desyncFrame);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", v.desyncReport.empty() ? "(saving the recording...)" : "(recording saved)");
     ImGui::End();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
 }
 
 const char* VoteText(lobby::Choice c)
@@ -2129,9 +2131,11 @@ void DrawSides(const NetView& v, const bool (&show)[kNumPlayers] = {true, true})
         }
         else if (mine) {
             const bool ready = s.ready;
-            if (TileButton(ready ? "Ready##toggle" : "Ready", -1, ready) && armed) Act([ready] { NetSetReady(!ready); });
+            ImGui::BeginDisabled(ready);
+            if (TileButton("Ready", -1, ready) && armed) Act([] { NetSetReady(true); });
+            ImGui::EndDisabled();
             ImGui::SetItemDefaultFocus();
-            if (ready) ImGui::TextColored(kDim, "Press Ready again to change.");
+            if (ready) ImGui::TextColored(kDim, "Locked in. The match starts once both are ready.");
             ImGui::BeginDisabled(ready);
             DrawPick(g_choices);
             if (v.host) {

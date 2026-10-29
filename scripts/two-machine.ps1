@@ -33,7 +33,6 @@ if ($Deploy) {
   # Both: scripts\up.ps1 there copies its build folder's DLL into the game folder.
   Say (RemotePut (Join-Path $PSScriptRoot '..\build\Release\sfv_rollback.dll') 'sfv_rollback.dll')
   Say (RemotePut (Join-Path $PSScriptRoot '..\build\Release\sfv_rollback.dll') 'sfv-rollback\build\Release\sfv_rollback.dll')
-  Say (RemotePut (Join-Path $w 'sfv_noise.txt') 'sfv_noise.txt')
   if ($ping.games) { Remote 'stop' | Out-Null; Start-Sleep 3 }
   $ping = @{ games = 0 }
 }

@@ -142,6 +142,9 @@ public:
     // gameplay code), keyed by region size and word offset so the mask holds
     // across matchups. Left out of hashes. Learned by "learnnoise".
     bool LoadNoise(const std::wstring& path);
+    void LoadNoiseText(const char* text, size_t len); // the sfv_noise.txt format
+    // What BuildId's noise part hashes: the mask as loaded.
+    uint64_t NoiseHash() const;
     bool SaveNoise(const std::wstring& path) const;
     bool AddNoise(size_t regionSize, size_t offset); // true if new
     size_t NoiseWords() const

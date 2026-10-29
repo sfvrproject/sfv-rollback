@@ -81,7 +81,6 @@ New-Item -ItemType Directory -Force $release | Out-Null
 $sources = [ordered]@{
   'xinput1_3.dll'    = Join-Path $build 'xinput1_3.dll'
   'sfv_rollback.dll' = Join-Path $build 'sfv_rollback.dll'
-  'sfv_noise.txt'    = Join-Path $root 'data\sfv_noise.txt'
 }
 $files = foreach ($name in $sources.Keys) {
   Copy-Item $sources[$name] (Join-Path $release $name) -Force

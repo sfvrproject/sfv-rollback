@@ -52,7 +52,7 @@ src/mod/       sfv_rollback.dll: offsets, probes, SfvGame, Weyvelength and UDP t
 src/proxy/     xinput1_3.dll (and version.dll) proxy that loads sfv_rollback.dll
 tests/         end-to-end tests
 scripts/       PowerShell helpers to drive two game instances and soak-test netplay
-data/          sfv_noise.txt, the shared checksum mask (copy next to the DLL)
+data/          sfv_noise.txt, the shared checksum mask (built into the DLL)
 ```
 
 ## Build

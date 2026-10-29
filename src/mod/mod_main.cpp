@@ -1,3 +1,4 @@
+#include "builtin_noise.h"
 #include "core/replay_file.h"
 #include "core/state.h"
 #include "mod/battle_driver.h"
@@ -27,7 +28,7 @@ namespace sfv::mod {
 
 namespace {
 
-constexpr const char* kModVersion = "0.1.0";
+constexpr const char* kModVersion = "0.1.1";
 
 std::wstring DirectoryOf(HMODULE module)
 {
@@ -106,10 +107,20 @@ DWORD WINAPI ModMain(LPVOID self)
     // masked on one side only. Pointer fields are masked by the shared noise
     // file instead (sfvr peers --pointers), identically on both machines.
     if (haveMap) game.SetStateMap(&stateMap);
-    const std::wstring noisePath = dir + L"\\sfv_noise.txt";
+    // The noise mask is built in, so every copy of a build masks the same
+    // words; [mod] noise_file swaps in a file (for learning new words: stress
+    // and learnnoise write to it).
+    const std::wstring noisePath = dir + L"\\" + (config.noiseFile.empty() ? L"sfv_noise.txt" : config.noiseFile);
     SetNoisePath(noisePath);
-    const bool haveNoise = game.LoadNoise(noisePath);
-    Log("noise mask: %s (%zu words)", haveNoise ? "loaded" : "none", game.NoiseWords());
+    if (!config.noiseFile.empty() && game.LoadNoise(noisePath)) {
+        Log("noise mask: %s (%zu words; not the built-in one: peers need the same file)", Narrow(config.noiseFile).c_str(),
+            game.NoiseWords());
+    }
+    else {
+        if (!config.noiseFile.empty()) Log("noise mask: cannot read %s; the built-in one instead", Narrow(config.noiseFile).c_str());
+        game.LoadNoiseText(reinterpret_cast<const char*>(kBuiltinNoise), sizeof(kBuiltinNoise));
+        Log("noise mask: built in (%zu words)", game.NoiseWords());
+    }
 
     if (!InstallProbes(image, config, &game, &stateMap, stateMapPath)) return 0;
     InstallControl(dir + L"\\sfv_cmd" + suffix + L".txt", config.virtualPads, config.alwaysActive);

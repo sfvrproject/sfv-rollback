@@ -154,6 +154,7 @@ Config LoadConfig(const std::wstring& path, const std::wstring& dllDir, const st
     c.virtualPads = ReadInt(path, L"control", L"virtual_pads", 0);
     c.alwaysActive = ReadInt(path, L"control", L"always_active", 0) != 0;
 
+    c.noiseFile = ReadString(path, L"mod", L"noise_file", L"");
     c.reportDir = ReadString(path, L"mod", L"report_dir", L"");
     if (c.reportDir.empty()) c.reportDir = dllDir + L"\\SFVR\\matches";
     c.updateUrl = ReadString(path, L"update", L"url", L"");

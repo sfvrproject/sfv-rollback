@@ -780,6 +780,8 @@ void RunNetCommand(const std::string& line)
         o.stage = kKeepStage;
         if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) o.stage = static_cast<uint16_t>(std::stoi(v));
         else o.stageCode = v;
+        // In a session, the host's stage for the next match (as the panel sets it).
+        if (!o.stageCode.empty()) NetSetStage(o.stageCode);
     }
     else if (cmd == "netstatus") {
         Log("netplay status: %s", NetStatus().c_str());

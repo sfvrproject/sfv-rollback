@@ -444,18 +444,41 @@ void SfvGame::SetStateMap(const StateMap* map)
 
 bool SfvGame::LoadNoise(const std::wstring& path)
 {
-    FILE* f = _wfopen(path.c_str(), L"r");
+    FILE* f = _wfopen(path.c_str(), L"rb");
     if (!f) return false;
-    noise_.clear();
-    unsigned long long size = 0, offset = 0;
-    char line[128];
-    while (std::fgets(line, sizeof(line), f)) {
-        if (line[0] == '#') continue;
-        if (std::sscanf(line, "%llu %llx", &size, &offset) == 2) noise_[size_t(size)].insert(size_t(offset) & ~size_t(7));
-    }
+    std::string text;
+    char buf[4096];
+    for (size_t n; (n = std::fread(buf, 1, sizeof(buf), f)) > 0;) text.append(buf, n);
     std::fclose(f);
-    SetStateMap(stateMap_);
+    LoadNoiseText(text.data(), text.size());
     return true;
+}
+
+void SfvGame::LoadNoiseText(const char* text, size_t len)
+{
+    noise_.clear();
+    const char* end = text + len;
+    for (const char* p = text; p < end;) {
+        const char* eol = std::find(p, end, '\n');
+        const std::string line(p, eol);
+        p = eol < end ? eol + 1 : end;
+        unsigned long long size = 0, offset = 0;
+        if (line.empty() || line[0] == '#') continue;
+        if (std::sscanf(line.c_str(), "%llu %llx", &size, &offset) == 2) noise_[size_t(size)].insert(size_t(offset) & ~size_t(7));
+    }
+    SetStateMap(stateMap_);
+}
+
+uint64_t SfvGame::NoiseHash() const
+{
+    uint64_t noise = 0;
+    for (const auto& [size, offsets] : noise_) {
+        for (size_t o : offsets) {
+            const uint64_t pair[2] = {size, o};
+            noise = Hash64(pair, sizeof(pair), noise);
+        }
+    }
+    return noise;
 }
 
 bool SfvGame::SaveNoise(const std::wstring& path) const
@@ -600,13 +623,7 @@ void SfvGame::RunPostRestoreCallbacks(const game::FrameId& id) const
 std::string SfvGame::BuildId() const
 {
     char buf[96];
-    uint64_t noise = 0;
-    for (const auto& [size, offsets] : noise_) {
-        for (size_t o : offsets) {
-            const uint64_t pair[2] = {size, o};
-            noise = Hash64(pair, sizeof(pair), noise);
-        }
-    }
+    const uint64_t noise = NoiseHash();
     std::snprintf(buf, sizeof(buf), "sfv-%08X/adapter-3/map-%016llx/noise-%016llx", image_.timestamp,
                   static_cast<unsigned long long>(stateMap_ ? stateMap_->Fingerprint() : 0),
                   static_cast<unsigned long long>(noise));

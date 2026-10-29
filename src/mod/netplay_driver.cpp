@@ -329,16 +329,28 @@ public:
         Log("netplay: simulating %d ms latency, %d ms jitter, %.1f%% loss", c.latencyMs, c.jitterMs, c.loss * 100.0);
     }
 
+    // Ready locks this player's pick in until the match starts: backing out
+    // while the host starts it (or preloads for it) left both sides waiting.
+    // (A session that readies by itself, for tests, is not locked.)
     void SetReady(bool ready)
     {
+        if (!ready && lockedIn_) {
+            Log("netplay: ready is locked in until the match starts");
+            return;
+        }
+        if (ready != ready_) Log("netplay: %sready", ready ? "" : "not ");
         ready_ = ready;
-        Log("netplay: %sready", ready ? "" : "not ");
+        lockedIn_ = ready;
     }
 
     void SetPick(bool hasPick, const PlayerSetup& pick)
     {
         std::lock_guard lock(mutex_);
         if (options_.hasPick == hasPick && options_.pick == pick) return;
+        if (lockedIn_) {
+            Log("netplay: the pick is locked in (ready)");
+            return;
+        }
         options_.hasPick = hasPick;
         options_.pick = pick;
         ready_ = false; // a new pick has to be confirmed again
@@ -356,6 +368,10 @@ public:
     // matches: a stage code, "random" or "" (as prepared).
     void SetStage(const std::string& code)
     {
+        if (lockedIn_) {
+            Log("netplay: the stage is locked in (ready)");
+            return;
+        }
         const int index = code.empty() || code == "random" ? -1 : StageIndex(code);
         hostStageRule_ = code == "random" ? lobby::kRandomStage : index >= 0 ? index : lobby::kAnyStage;
         Log("netplay: stage %s", code.empty() ? "as prepared" : code.c_str());
@@ -449,9 +465,11 @@ public:
     // Game thread, once per rendered battle frame.
     bool OnFrame(SfvGame& game) override
     {
-        // The lobby over the last match's results screen: the battle stays
-        // as it is (its own results menu would open if it ran on).
-        if (holdOverResults_ && !matchLive_) return true;
+        // The lobby over the last match's results screen: the battle runs on
+        // by itself, so its win pose plays out; its own results menu stays
+        // closed (the hold drops the events that open it, and no pad reaches
+        // the game meanwhile).
+        if (holdOverResults_ && !matchLive_) return false;
         if (next_ != Next::None && matchLive_) {
             // A spectator watches the match to its end first, unless the
             // session itself ended.
@@ -612,7 +630,9 @@ private:
             case WeyveEvent::Type::RoomJoined:
                 if (host_) {
                     weyve_->SetRoomData("build", Hex64(build_));
-                    weyve_->SetRoomData("version", modVersion_); // for the joiner's message when builds differ
+                    // For the joiner's message when builds differ: which part.
+                    weyve_->SetRoomData("version", modVersion_);
+                    weyve_->SetRoomData("game", game_.BuildId());
                     weyve_->SetRoomData("protocol", std::to_string(lobby::kProtocol));
                     MatchCode mc;
                     mc.kind = MatchCode::Kind::Room;
@@ -679,7 +699,25 @@ private:
                         why = "the host runs SFVR " + theirs + "; update from Settings, Updates";
                     }
                     else {
-                        why = "the host runs another build of SFVR " + theirs;
+                        // Same version: the game, or the noise mask (a 0.1.0 install
+                        // missing sfv_noise.txt). Rooms of 0.1.0 do not say.
+                        const auto game = v.data.find("game");
+                        const std::string theirGame = game == v.data.end() ? "" : game->second;
+                        const std::string mine = game_.BuildId();
+                        auto part = [](const std::string& id, const char* name) {
+                            const size_t at = id.find(name);
+                            return at == std::string::npos ? std::string() : id.substr(at, id.find('/', at) - at);
+                        };
+                        if (!theirGame.empty()) Log("netplay: the room's game build is %s, this one %s", theirGame.c_str(), mine.c_str());
+                        if (!theirGame.empty() && part(theirGame, "sfv-") != part(mine, "sfv-")) {
+                            why = "the host's Street Fighter V is another version (check for a game update in Steam)";
+                        }
+                        else if (!theirGame.empty() && part(theirGame, "noise-") != part(mine, "noise-")) {
+                            why = "the host's SFVR " + theirs + " checks the game state differently; one of you should reinstall it";
+                        }
+                        else {
+                            why = "the host runs another build of SFVR " + theirs + "; one of you should reinstall it";
+                        }
                     }
                     EndSession(why);
                     return;
@@ -1235,6 +1273,7 @@ private:
         case Next::Lobby:
             myChoice_ = Choice::None;
             ready_ = options_.autoReady;
+            lockedIn_ = false;
             {
                 std::lock_guard lock(mutex_);
                 for (auto& seat : seats_) {
@@ -1665,7 +1704,9 @@ private:
         }
         if (host_) Stream();
         Publish(ahead);
-        return true;
+        // Past the results event the session holds still (a rematch starts a
+        // new one) and the game runs the frames itself: the win pose goes on.
+        return !ResultsHeld();
     }
 
     // Host: confirmed frames into the spectators' stream.
@@ -1775,7 +1816,7 @@ private:
                           desyncFrame_ >= 0 ? (" | DESYNC at " + std::to_string(desyncFrame_)).c_str() : "");
             SetStatus(buf);
         }
-        return true;
+        return !ResultsHeld(); // as for the players (FrameWhileRunning)
     }
 
     // The intro, round call and round end are not rolled back with the battle
@@ -2081,6 +2122,7 @@ private:
     int played_ = 0;                       // guarded by mutex_
     std::atomic<bool> holdOverResults_{false}; // the lobby holds the last match's results screen (OnFrame)
     std::atomic<int> nextDelay_{-1};       // the input delay for the next match (-1: unchanged)
+    std::atomic<bool> lockedIn_{false};    // the player said ready: pick and ready hold until the next lobby
     std::atomic<int> hostStageRule_{-1};   // host: the stage rule set in the lobby (-1: from the options)
     uint16_t streaks_[kNumPlayers] = {};   // host: each player's current win streak this session
     uint32_t winsAtStart_[2] = {};         // the game's match win counts as the match started

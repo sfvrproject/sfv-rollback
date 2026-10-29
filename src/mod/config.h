@@ -35,6 +35,10 @@ struct Config {
     std::wstring playbackFile;
     int stressDistance = 0;
 
+    // A noise mask file next to the DLL to use instead of the one built in
+    // (for learning new words); empty: the built-in one.
+    std::wstring noiseFile;
+
     std::wstring reportDir; // match recordings and logs; default <dll dir>\SFVR\matches (files.h)
 
     // [update] (updater.h): the site's update info, and whether to check at start
