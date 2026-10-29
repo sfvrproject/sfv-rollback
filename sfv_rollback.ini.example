@@ -34,8 +34,8 @@ include_sync_counters=1
 verbose=0
 
 [update]
-; The project site's update info (updater.h). Empty: the build's default
-; (none until the site is up). The mod checks at start and asks before
+; The project site's update info (updater.h). Empty: the build's default,
+; https://sfvr.pages.dev/update.json. The mod checks at start and asks before
 ; installing anything; check=0 turns the check at start off.
 url=
 check=1

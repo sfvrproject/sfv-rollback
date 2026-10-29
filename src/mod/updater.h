@@ -16,9 +16,8 @@
 
 namespace sfv::mod {
 
-// The published update info, once the project site is up (empty: no
-// updates unless [update] url says where).
-constexpr const char* kDefaultUpdateUrl = "";
+// The project site's update info (sfvr-site on Cloudflare Pages).
+constexpr const char* kDefaultUpdateUrl = "https://sfvr.pages.dev/update.json";
 
 struct UpdateView {
     enum class State {
