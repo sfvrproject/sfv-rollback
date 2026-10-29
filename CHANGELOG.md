@@ -7,6 +7,17 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- False desyncs in intros, round calls and win poses: the camera's and the
+  pawns' animation clocks follow how ticks fall into rendered frames, which
+  differs per machine (more so since 0.1.2 stretches frames). They are still
+  restored on rollbacks but no longer part of the checksum. In two matches
+  against a tester they caused 300-400 desync events each while the rest of
+  the state matched byte for byte.
+- A test script's `server` command no longer sticks in the panel's saved
+  settings.
+
 ## [0.1.2] - 2026-10-29
 
 Smoother matches: the game no longer repeats a frame to keep both sides in

@@ -1593,6 +1593,7 @@ private:
         roundCallFrame_ = -1;
         loweredEarly_ = false;
         pace_ = {};
+        TakePaceStats(); // the pacer's figures start with the match too
         UpdatePredictionWindow();
         winsKnown_ = game_.MatchWins(winsAtStart_[0], winsAtStart_[1]);
         SetState(State::Running);

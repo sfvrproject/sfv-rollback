@@ -432,6 +432,16 @@ void SfvGame::SetStateMap(const StateMap* map)
             r.ignore.resize(1, 0);
             r.ignore[0] |= uint8_t(1u << ((game::inputunit::kRingTag - game::inputunit::kCountersBegin) / 8));
         }
+        if (r.name == "viewtarget.clock" || r.name == "pawn.clock") {
+            // The camera's and the pawns' animation clocks follow how ticks
+            // fall into rendered frames, different on each machine (and more
+            // so with time sync stretching frames): in intros, round calls and
+            // win poses they part by a few microseconds while the whole rest
+            // of the state agrees (2026-10-29: 400 false desyncs a match).
+            // Restored on a rollback like the rest, but out of the checksum.
+            r.ignore.resize(1, 0);
+            r.ignore[0] |= 1;
+        }
         auto it = noise_.find(r.size);
         if (it == noise_.end()) continue;
         r.ignore.resize((r.size / 8 + 8) / 8, 0);
