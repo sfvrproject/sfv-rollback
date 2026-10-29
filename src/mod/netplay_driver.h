@@ -36,6 +36,9 @@ class SfvGame;
 // install hosts and joins unless [weyve] server or the panel's Debug tab
 // says otherwise.
 inline constexpr const char* kDefaultServer = "159.69.32.141:5555";
+// The public server answers on 443 too, for
+// networks that block 5555: tried at the same time when the server is kDefaultServer.
+inline constexpr uint16_t kDefaultServerAlsoPort = 443;
 
 struct NetplayOptions {
     bool udp = false;                      // the testing transport (U- codes) instead of Weyvelength rooms
@@ -44,6 +47,7 @@ struct NetplayOptions {
     // one its settings file keeps; empty: none. A `server` command (test
     // scripts) changes `server` for this run only, not this.
     std::string savedServer;
+    uint16_t serverAlsoPort = 0;            // testing: the server's host on this port too (0: 443 for kDefaultServer)
     std::vector<std::string> recentServers; // the Debug tab's list, newest first
     std::string name;                      // display name; empty: the Steam persona name
     uint16_t udpPort = 47001;              // UDP: the host listens here; a joiner binds any port

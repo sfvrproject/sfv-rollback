@@ -262,7 +262,8 @@ public:
             base_ = std::move(t);
         }
         else {
-            auto w = WeyveService::Start(o.server, name_);
+            const uint16_t alsoPort = o.serverAlsoPort ? o.serverAlsoPort : o.server == kDefaultServer ? kDefaultServerAlsoPort : 0;
+            auto w = WeyveService::Start(o.server, name_, alsoPort);
             weyve_ = w.get();
             base_ = std::move(w);
         }

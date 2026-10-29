@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <functional>
 #include <mutex>
@@ -83,6 +84,7 @@ bool ParseServer(const std::string& text, std::string* host, uint16_t* port)
 struct WeyveService::Impl {
     std::string host;
     uint16_t port = kDefaultPort;
+    uint16_t alsoPort = 0; // tried at the same time as `port` (Start)
     std::string name;
 
     std::mutex mutex; // guards everything below and every call into the client
@@ -160,14 +162,68 @@ struct WeyveService::Impl {
         }
     }
 
+    // Connects to `port`, and to `alsoPort` at the same time when set: a
+    // connect that gets no answer blocks for about 21 s (the system's TCP
+    // timeout), longer than a session waits, so the ports cannot take turns.
+    // The first client to connect is kept; the other is closed when its
+    // connect returns. Null if neither connects.
+    WeyveClient* Connect()
+    {
+        if (!alsoPort) {
+            WeyveClient* c = weyve_client_create();
+            if (weyve_connect(c, host.c_str(), port)) return c;
+            Log("weyve: cannot connect to %s:%u", host.c_str(), port);
+            weyve_client_destroy(c);
+            return nullptr;
+        }
+        struct Race {
+            std::mutex m;
+            std::condition_variable done;
+            WeyveClient* winner = nullptr;
+            uint16_t winnerPort = 0;
+            int finished = 0;
+            bool abandoned = false; // the service stopped waiting: a late connect closes itself
+        };
+        auto race = std::make_shared<Race>();
+        for (const uint16_t p : {port, alsoPort}) {
+            std::thread([race, p, h = host] {
+                ThreadGuard running; // a connect can block ~21 s: no unload meanwhile
+                WeyveClient* c = weyve_client_create();
+                const bool ok = weyve_connect(c, h.c_str(), p);
+                if (!ok) Log("weyve: cannot connect to %s:%u", h.c_str(), p);
+                std::lock_guard lock(race->m);
+                if (ok && !race->winner && !race->abandoned) {
+                    race->winner = c;
+                    race->winnerPort = p;
+                }
+                else {
+                    weyve_client_destroy(c);
+                }
+                race->finished++;
+                race->done.notify_all();
+            }).detach();
+        }
+        std::unique_lock lock(race->m);
+        while (!race->winner && race->finished < 2 && !stop) race->done.wait_for(lock, std::chrono::milliseconds(100));
+        if (stop) {
+            race->abandoned = true;
+            if (race->winner) weyve_client_destroy(race->winner);
+            return nullptr;
+        }
+        if (race->winner && race->winnerPort != port) {
+            Log("weyve: connected through port %u", race->winnerPort);
+            port = race->winnerPort; // what the session uses from here on
+        }
+        return race->winner;
+    }
+
     void Run()
     {
         ThreadGuard running;
-        Log("weyve: connecting to %s:%u", host.c_str(), port);
-        WeyveClient* c = weyve_client_create();
-        if (!weyve_connect(c, host.c_str(), port)) {
-            Log("weyve: cannot connect to %s:%u", host.c_str(), port);
-            weyve_client_destroy(c);
+        if (alsoPort) Log("weyve: connecting to %s:%u (and port %u)", host.c_str(), port, alsoPort);
+        else Log("weyve: connecting to %s:%u", host.c_str(), port);
+        WeyveClient* c = Connect();
+        if (!c) {
             std::lock_guard lock(mutex);
             server = WeyveRoomView::Server::Failed;
             events.push_back({WeyveEvent::Type::ServerLost, 0, "cannot connect to " + host});
@@ -245,10 +301,11 @@ struct WeyveService::Impl {
 
 WeyveService::WeyveService(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
 
-std::unique_ptr<WeyveService> WeyveService::Start(const std::string& server, const std::string& name)
+std::unique_ptr<WeyveService> WeyveService::Start(const std::string& server, const std::string& name, uint16_t alsoPort)
 {
     auto impl = std::make_unique<Impl>();
     if (!ParseServer(server, &impl->host, &impl->port)) impl->host = server;
+    impl->alsoPort = alsoPort == impl->port ? 0 : alsoPort;
     impl->name = name;
     Impl* raw = impl.get();
     std::unique_ptr<WeyveService> s(new WeyveService(std::move(impl)));

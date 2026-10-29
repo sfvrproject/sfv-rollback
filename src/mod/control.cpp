@@ -348,13 +348,16 @@ void RunNetCommand(const std::string& line)
         if (PackLogsToShare(&error).empty()) Log("files: cannot pack the logs: %s", error.c_str());
     }
     else if (cmd == "server") {
-        // server [host:port]: the rooms server the next host/join uses, in
-        // this game only (the panel saves it only when the panel's own
-        // settings change). None: back to the default.
+        // server [host:port [also port]]: the rooms server the next host/join
+        // uses, in this game only (the panel keeps its own choice). None:
+        // back to the default. The second port is tried at the same time
+        // (testing the public server's 443 fallback).
         std::string address;
-        ss >> address;
-        o.server = address;
-        Log("netplay: rooms server %s for the next sessions", address.empty() ? "back to the default" : address.c_str());
+        int alsoPort = 0;
+        ss >> address >> alsoPort;
+        o.server = !address.empty() ? address : !o.savedServer.empty() ? o.savedServer : kDefaultServer;
+        o.serverAlsoPort = static_cast<uint16_t>(std::clamp(alsoPort, 0, 65535));
+        Log("netplay: rooms server %s for the next sessions", o.server.c_str());
     }
     else if (cmd == "transport") {
         // transport udp|weyve: for the next host/join (testing both paths).

@@ -22,6 +22,9 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 - When the rooms server does not answer at all, the message says what
   usually causes it (a firewall, antivirus or a network blocking its port).
+- The public server is tried on port 443 at the same time as 5555, and the
+  first to answer is used: some networks let only common ports through. The
+  server needs sfvr-server's `deploy/port-443.sh`.
 - The panel's Debug tab has a "Public server" button next to "This PC", to
   get back to the public server after trying a local one.
 
