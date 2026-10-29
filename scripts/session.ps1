@@ -5,10 +5,11 @@
 # at once); after the last, both leave. -Spectate N adds instance N as a
 # spectator. Prints per instance the session's course and any desync.
 # -Delay: both players' input delay (default 0: every remote input is
-# predicted, the most rollbacks).
+# predicted, the most rollbacks). -Server: the rooms server every instance
+# uses (default the local one, whatever the panel or the ini say).
 #   session.ps1 -Choices rematch,select
 param([string[]]$Choices = @('rematch', 'select'), [string]$Stage = 'CHN', [string[]]$Picks = @('RYU', 'KEN'), [int]$Spectate = -1,
-      [int]$TimeoutSeconds = 900, [int]$ChooseAfterMs = 1500, [int]$Delay = 0)
+      [int]$TimeoutSeconds = 900, [int]$ChooseAfterMs = 1500, [int]$Delay = 0, [string]$Server = '127.0.0.1:5555')
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
 function LogOf($i) { Join-Path $w ($(if ($i -eq 0) { 'sfv_rollback.log' } else { "sfv_rollback.$i.log" })) }
 # The lines each log gained since the start, read as they come (logtail.ps1).
@@ -18,11 +19,11 @@ function Since($i) { Update-LogTail $tails[$i]; $tails[$i].Lines.ToArray() }
 $start = Get-Date
 $instances = @(0, 1) + $(if ($Spectate -ge 0) { @($Spectate) } else { @() })
 foreach ($i in $instances) { $tails[$i] = New-LogTail (LogOf $i) }
-& "$PSScriptRoot\cmd.ps1" -Instance 0 -Commands "delay $Delay; mash 11; pick $($Picks[0]) 0 1 0 1 1; stage $Stage; host" -WaitMs 1500 | Out-Null
+& "$PSScriptRoot\cmd.ps1" -Instance 0 -Commands "server $Server; delay $Delay; mash 11; pick $($Picks[0]) 0 1 0 1 1; stage $Stage; host" -WaitMs 1500 | Out-Null
 $code = (Select-String -Path (LogOf 0) -Pattern 'hosting, code (\S+)' | Select-Object -Last 1).Matches.Groups[1].Value
 "code $code"
-& "$PSScriptRoot\cmd.ps1" -Instance 1 -Commands "delay $Delay; mash 22; pick $($Picks[1]) 0 1 0 1 1; join $code" -WaitMs 500 | Out-Null
-if ($Spectate -ge 0) { & "$PSScriptRoot\cmd.ps1" -Instance $Spectate -Commands "spectate $code" -WaitMs 500 | Out-Null }
+& "$PSScriptRoot\cmd.ps1" -Instance 1 -Commands "server $Server; delay $Delay; mash 22; pick $($Picks[1]) 0 1 0 1 1; join $code" -WaitMs 500 | Out-Null
+if ($Spectate -ge 0) { & "$PSScriptRoot\cmd.ps1" -Instance $Spectate -Commands "server $Server; spectate $code" -WaitMs 500 | Out-Null }
 $deadline = $start.AddSeconds($TimeoutSeconds)
 $decided = 0
 while ((Get-Date) -lt $deadline) {

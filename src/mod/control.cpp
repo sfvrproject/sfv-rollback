@@ -259,6 +259,8 @@ DWORD WINAPI GetStateDetour(DWORD user, XINPUT_STATE* state)
 // host [random] [costumes] | join <code> | spectate <code> | leave | ready [0|1]
 // | choose rematch|select | netsim <latency ms> <jitter ms> <loss %> | mash <seed>
 // | dumps <every N frames> [max] (state dumps in match recordings)
+// | recordings full|compact (region hashes for every frame, or only around desyncs)
+// | server [host:port] (the rooms server for the next host/join, this game only)
 // | pick <code costume color comment vskill vtrigger> | stage <n> | netstatus
 // | name [text] (the name test sessions use; none: back to "Player <instance + 1>")
 // | delay <frames> (this player's input delay for the next host/join)
@@ -317,6 +319,15 @@ void RunNetCommand(const std::string& line)
     else if (cmd == "name") {
         std::getline(ss >> std::ws, g_testName);
         Log("netplay: test sessions play as %s", TestName().c_str());
+    }
+    else if (cmd == "server") {
+        // server [host:port]: the rooms server the next host/join uses, in
+        // this game only (the panel saves it only when the panel's own
+        // settings change). None: back to the default.
+        std::string address;
+        ss >> address;
+        o.server = address;
+        Log("netplay: rooms server %s for the next sessions", address.empty() ? "back to the default" : address.c_str());
     }
     else if (cmd == "transport") {
         // transport udp|weyve: for the next host/join (testing both paths).
@@ -871,7 +882,7 @@ bool Parse(const std::string& line, Step& step)
         step.setup.stage = static_cast<uint16_t>(stage);
         return !ss.fail();
     }
-    if (cmd == "host" || cmd == "join" || cmd == "spectate" || cmd == "name" || cmd == "delay" || cmd == "transport" || cmd == "ready" || cmd == "choose" || cmd == "leave" || cmd == "netsim" || cmd == "mash" || cmd == "dumps" || cmd == "pick" ||
+    if (cmd == "host" || cmd == "join" || cmd == "spectate" || cmd == "server" || cmd == "name" || cmd == "delay" || cmd == "transport" || cmd == "ready" || cmd == "choose" || cmd == "leave" || cmd == "netsim" || cmd == "mash" || cmd == "dumps" || cmd == "recordings" || cmd == "pick" ||
         cmd == "stage" || cmd == "netstatus" || cmd == "battle" || cmd == "setstage" || cmd == "park" || cmd == "peek" || cmd == "battlenow" || cmd == "findptr" || cmd == "members" || cmd == "worldctx" || cmd == "poke" || cmd == "stages" || cmd == "nextstage" || cmd == "recdiff" || cmd == "outsidetest" || cmd == "tasklist" || cmd == "phases" || cmd == "regions" || cmd == "costumes" || cmd == "variants" || cmd == "presets" || cmd == "freeplay" || cmd == "relayonly" || cmd == "vsync" || cmd == "uniqueparam" || cmd == "datatable" || cmd == "replay" || cmd == "classes" || cmd == "classinfo" || cmd == "named" || cmd == "scene" || cmd == "relocate" || cmd == "menu" || cmd == "overlay" || cmd == "charas" || cmd == "find" || cmd == "watchregion" || cmd == "packages" || cmd == "preload" || cmd == "charcache" || cmd == "drawlog" || cmd == "inputlog" || cmd == "mappedlog" || cmd == "versions" || cmd == "uipads" || cmd == "uistart") {
         step.kind = Step::Net;
         step.line = line;
