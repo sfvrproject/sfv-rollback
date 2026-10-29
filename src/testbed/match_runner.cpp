@@ -64,6 +64,7 @@ MockMatchResult RunMockMatch(const MockMatchOptions& options)
         result.desyncs[p] = sessions[p]->Desyncs();
         result.desyncCount[p] = sessions[p]->DesyncCount();
         result.rollbacks[p] = sessions[p]->RollbackStats();
+        result.saves[p] = sessions[p]->SaveCounts();
     }
     return result;
 }

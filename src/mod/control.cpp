@@ -1,6 +1,7 @@
 #include "mod/control.h"
 #include "mod/battle_driver.h"
 #include "mod/files.h"
+#include "mod/pacing.h"
 #include "mod/updater.h"
 #include "mod/flow.h"
 
@@ -155,6 +156,9 @@ std::atomic<int> g_mappedLog{0}; // research (`mappedlog <updates>`): log the ma
 uint64_t InputUpdateDetour(void* self, float deltaSeconds)
 {
     HookGuard guard;
+    // During a netplay match the frame's wait goes here, before the pads are
+    // read, so it adds no input lag (pacing.h).
+    PaceFrame();
     const uint64_t result = g_origInputUpdate(self, deltaSeconds);
     auto* pads = *reinterpret_cast<uint8_t* const*>(g_imageBase + kInputManager + 8);
     if (pads && IsReadable(pads, 2 * kPadStride)) {

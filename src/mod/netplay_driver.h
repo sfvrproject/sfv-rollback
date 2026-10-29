@@ -61,6 +61,8 @@ struct NetplayOptions {
     int dumpEvery = 600;                   // full state dumps in match recordings: every N confirmed frames
     int maxDumps = 24;                     // ... at most this many
     bool fullRecordings = false;           // recordings keep every frame's region hashes, not only around desyncs (testing)
+    bool skipSaves = true;                 // saves that can never be loaded skip their copy (netplay.h)
+    bool verifyLoads = true;               // each load checked against its save's checksum (netplay.h)
     bool menuAfterMatch = true;            // back to the main menu when a session ends or on leave
     bool reconcileStart = true;            // joiner takes the host's values where the frozen states differ (lobby.h)
     bool allowSpectators = true;           // host: others may watch

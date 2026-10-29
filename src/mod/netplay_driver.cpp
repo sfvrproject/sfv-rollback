@@ -8,6 +8,7 @@
 #include "core/state.h"
 #include "mod/battle_driver.h"
 #include "mod/battle_setup.h"
+#include "mod/pacing.h"
 #include "mod/control.h"
 #include "mod/files.h"
 #include "mod/flow.h"
@@ -1555,6 +1556,8 @@ private:
         nc.inputDelay = options_.inputDelay;
         nc.predictionWindow = options_.predictionWindow;
         nc.dumpEvery = options_.dumpEvery;
+        nc.skipUnloadableSaves = options_.skipSaves;
+        nc.verifyLoads = options_.verifyLoads;
         nc.maxDumps = static_cast<size_t>(std::max(0, options_.maxDumps));
         nc.log = [](const std::string& m) { Log("netplay: %s", m.c_str()); };
         game.localPadSlot = 0;
@@ -1650,20 +1653,20 @@ private:
         if (options_.mashSeed && s == State::Running) Mash(session_->NextFrame());
         UpdatePredictionWindow();
 
-        // Time sync: the side that runs ahead waits as many frames as it is
-        // ahead. The figure reflects a wait only a round trip later, so the
-        // next wait comes no sooner than that: waiting on every frame the
-        // figure was still high made both sides wait in turn, about one frame
-        // in five each at 100 ms (each wait also stalls the other side). In
-        // lockstep the side ahead stalls for the other's inputs by itself.
+        // Time sync: the side that runs ahead stretches its frame period a
+        // little (pacing.h) instead of dropping frames, which showed as a
+        // repeated frame about ten times a minute. Only a large lead (after a
+        // hitch on the other side) still drops a whole frame, one per 10 at
+        // most: the estimate is a ~0.4 s average, so harder corrections made
+        // the peers swing. In lockstep the side ahead stalls for the other's
+        // inputs by itself.
         const float ahead = session_->FramesAhead();
+        PaceLead(ahead);
         framesRun_++;
         if (waitCooldown_ > 0) waitCooldown_--;
-        if (waitFrames_ == 0 && waitCooldown_ == 0 && predictionWindow_ > 0 && ahead >= 1.0f) {
-            constexpr int kMaxWait = 4;
-            const float rttMs = session_->NetworkStats().avg_ping;
-            waitFrames_ = std::min(static_cast<int>(ahead), kMaxWait);
-            waitCooldown_ = waitFrames_ + std::max(6, static_cast<int>(std::ceil(rttMs * 60 / 1000)));
+        if (waitFrames_ == 0 && waitCooldown_ == 0 && predictionWindow_ > 0 && ahead >= 8.0f) {
+            waitFrames_ = 1;
+            waitCooldown_ = 10;
         }
         const bool wait = waitFrames_ > 0;
         if (wait) waitFrames_--;
@@ -1894,10 +1897,14 @@ private:
         if (pace_.since.time_since_epoch().count() != 0) {
             const double s = std::chrono::duration<double>(now - pace_.since).count();
             const GekkoNetworkStats net = session_->NetworkStats();
+            const PaceStats p = TakePaceStats();
             Log("netplay: pace %.1f frames/s (%d frames in %.1f s), %d of %d rendered frames waited, ahead %.2f, "
+                "stretched %d frames (%.1f %% on average), %d late, %d resets, %.1f ms waited per frame, "
                 "delay %u, window %u, ping %.0f ms, jitter %.0f ms, focused %d",
                 (frame - pace_.frame) / s, frame - pace_.frame, s, pace_.waits, pace_.rendered,
-                pace_.aheadSum / pace_.rendered, inputDelay_, predictionWindow_, net.avg_ping, net.jitter, pace_.focused);
+                pace_.aheadSum / pace_.rendered, p.stretched, p.stretched ? p.stretchSum / p.stretched * 100 : 0.0, p.late,
+                p.resets, p.paced ? p.waitedMs / p.paced : 0.0, inputDelay_, predictionWindow_, net.avg_ping, net.jitter,
+                pace_.focused);
         }
         pace_ = {};
         pace_.since = now;

@@ -32,17 +32,18 @@ Frame g_slowest;
 std::string Describe(const Frame& f)
 {
     auto ms = [&](Part p) { return f.parts[static_cast<int>(p)] / 1000.0; };
-    const double game = ms(Part::NetFrame) + ms(Part::BattleFrame);
+    const double game = ms(Part::NetFrame) + ms(Part::BattleFrame) + ms(Part::Pacing);
     const double render = ms(Part::Overlay) + ms(Part::Present);
     // Game and render threads overlap, so "elsewhere" is what the longer of
     // the two leaves unaccounted.
     const double elsewhere = f.micros / 1000.0 - (game > render ? game : render);
-    char buf[320];
+    char buf[340];
     std::snprintf(buf, sizeof(buf),
-                  "%.0f ms: netplay %.1f ms (%d ticks, %d replayed), battle %.1f ms, transport %.1f ms (lock wait %.1f), "
-                  "overlay %.1f ms, present %.1f ms, elsewhere %.0f ms",
-                  f.micros / 1000.0, ms(Part::NetFrame), f.ticks, f.replayed, ms(Part::BattleFrame), ms(Part::Transport),
-                  ms(Part::TransportWait), ms(Part::Overlay), ms(Part::Present), elsewhere > 0 ? elsewhere : 0.0);
+                  "%.0f ms: netplay %.1f ms (%d ticks, %d replayed), battle %.1f ms, pacing %.1f ms, transport %.1f ms "
+                  "(lock wait %.1f), overlay %.1f ms, present %.1f ms, elsewhere %.0f ms",
+                  f.micros / 1000.0, ms(Part::NetFrame), f.ticks, f.replayed, ms(Part::BattleFrame), ms(Part::Pacing),
+                  ms(Part::Transport), ms(Part::TransportWait), ms(Part::Overlay), ms(Part::Present),
+                  elsewhere > 0 ? elsewhere : 0.0);
     return buf;
 }
 

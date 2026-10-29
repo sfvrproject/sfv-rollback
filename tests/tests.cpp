@@ -18,6 +18,7 @@
 #include <thread>
 #include <cstdio>
 #include <cstring>
+#include <random>
 
 #include <windows.h>
 
@@ -118,6 +119,59 @@ void TestIgnoreMask()
     b[20] = 1;
     const auto ranges = DiffStates({{"r", 24, {0x02}}}, a, b);
     CHECK(ranges.size() == 1 && ranges[0].offset == 16 && ranges[0].length == 8); // whole words
+
+    // The masked hash is the hash of the region with its masked words zeroed,
+    // for any size (a partial last word too) and any mask, longer ones included.
+    std::mt19937 rng(7);
+    bool same = true;
+    for (int round = 0; round < 200; round++) {
+        const size_t size = 1 + rng() % 700;
+        std::vector<uint8_t> data(size);
+        for (auto& v : data) v = static_cast<uint8_t>(rng());
+        std::vector<uint8_t> ignore(rng() % ((size + 63) / 64 + 2));
+        for (auto& v : ignore) v = static_cast<uint8_t>(rng() % 3 == 0 ? 0 : rng());
+        std::vector<uint8_t> zeroed = data;
+        for (size_t w = 0; w * 8 < size; w++) {
+            if (IsIgnored(ignore, w * 8)) std::memset(&zeroed[w * 8], 0, std::min<size_t>(8, size - w * 8));
+        }
+        uint64_t got = 0;
+        HashRegions({{"r", data.data(), size, ignore}}, &got);
+        same = same && got == Hash64(zeroed.data(), size);
+    }
+    CHECK(same);
+}
+
+// A delay that covers the latency: most saves can never be loaded and skip
+// their copy. The match stays in sync and every load (jitter still causes
+// some) restores its saved state; with skipping off nothing is skipped.
+void TestSkippedSaves()
+{
+    MockMatchOptions mo;
+    mo.seed = 12;
+    mo.link = {2, 1, 0.0};
+    mo.inputDelay = 4;
+    const auto r = RunMockMatch(mo);
+    CHECK(r.started);
+    CHECK(FirstDesync(r) < 0);
+    for (int p = 0; p < kNumPlayers; p++) {
+        const auto& s = r.saves[p];
+        std::printf("  P%d: %d saves, %d skipped, %d loads, %d mismatches\n", p + 1, s.saves, s.skipped, s.loads,
+                    s.loadMismatches);
+        // (the mock has no time sync: the side ahead has fewer frames confirmed)
+        CHECK(s.saves > 2500 && s.skipped > s.saves / 3);
+        CHECK(s.loadMismatches == 0);
+    }
+    const DiffReport d = DiffReplays(r.recording[0], r.recording[1]);
+    CHECK(d.comparable && d.firstInputMismatch < 0 && d.firstStateMismatch < 0);
+
+    // No delay: the newest frames are always predicted, so few saves skip.
+    MockMatchOptions zero = mo;
+    zero.inputDelay = 0;
+    const auto z = RunMockMatch(zero);
+    CHECK(FirstDesync(z) < 0);
+    for (int p = 0; p < kNumPlayers; p++) {
+        CHECK(z.saves[p].skipped < z.saves[p].saves / 2 && z.saves[p].loadMismatches == 0);
+    }
 }
 
 void TestReplayRoundTrip()
@@ -236,6 +290,10 @@ void TestCleanMatch()
     CHECK(FirstDesync(r) < 0);
     CHECK(r.rollbacks[0].total_count > 0 && r.rollbacks[1].total_count > 0);
     CHECK(r.recording[0].finalThrough > 2500);
+    for (int p = 0; p < kNumPlayers; p++) {
+        // Every load restored the state its save held.
+        CHECK(r.saves[p].loads > 0 && r.saves[p].loadMismatches == 0);
+    }
 
     const DiffReport d = DiffReplays(r.recording[0], r.recording[1]);
     std::printf("%s", FormatDiff(d, r.recording[0]).c_str());
@@ -724,6 +782,7 @@ int main()
     const Test tests[] = {
         {"hashes", TestHashes},
         {"ignore mask", TestIgnoreMask},
+        {"skipped saves", TestSkippedSaves},
         {"replay file round trip", TestReplayRoundTrip},
         {"compact recording", TestCompactRecording},
         {"clean match", TestCleanMatch},

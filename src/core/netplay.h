@@ -9,6 +9,7 @@
 
 #include <gekkonet.h>
 
+#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -38,6 +39,13 @@ struct NetplayConfig {
     // whole match, not only at the first desync.
     int dumpEvery = 0;
     size_t maxDumps = 24;
+    // A save of frame f can only be loaded while the inputs of f + 1 may still
+    // be mispredicted. Once they are confirmed (the delay covers the latency)
+    // the save keeps its checksum, for desync detection, but skips the copy.
+    bool skipUnloadableSaves = true;
+    // After each load, the restored state's checksum against the one taken
+    // when that frame was saved: a mismatch is a save/load bug, logged.
+    bool verifyLoads = true;
     std::function<void(const std::string&)> log;
 };
 
@@ -78,6 +86,12 @@ public:
     void SetInputDelay(unsigned char delay);
     GekkoNetworkStats NetworkStats();
     GekkoRollbackStats RollbackStats();
+    // The session's saves so far, those that skipped their copy, and loads
+    // whose state did not match its save (verifyLoads).
+    struct SaveStats {
+        int saves = 0, skipped = 0, loads = 0, loadMismatches = 0;
+    };
+    SaveStats SaveCounts() const { return saveCounts_; }
 
     // The recording so far with its confirmed range updated.
     ReplayFile Recording() const;
@@ -125,6 +139,20 @@ private:
 
     ReplayFile recording_;
     StateHistory history_;
+    // Where a session's time goes (microseconds), logged every kCostEvery advances.
+    struct Costs {
+        double tick = 0, replayTick = 0, hash = 0, record = 0, save = 0, load = 0, loadCallbacks = 0;
+        int ticks = 0, replayed = 0, saves = 0, skippedSaves = 0, loads = 0, loadMismatches = 0;
+    } costs_;
+    // The last saves (by frame % size): their checksum, and whether the copy was skipped.
+    struct SavedFrame {
+        int frame = -1;
+        uint32_t checksum = 0;
+        bool skipped = false;
+    };
+    std::array<SavedFrame, 256> saved_{};
+    int loadMismatches_ = 0;
+    SaveStats saveCounts_;
     std::vector<uint64_t> frameHashes_;
     int hashedFrame_ = -2; // frame whose hashes frameHashes_ holds
     std::vector<DesyncInfo> desyncs_;

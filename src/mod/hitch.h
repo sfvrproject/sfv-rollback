@@ -23,6 +23,7 @@ enum class Part {
     BattleFrame,   // the game's battle frame outside the driver
     Transport,     // sends and receives on the Weyvelength client
     TransportWait, // ... of which waiting for the client's lock
+    Pacing,        // the frame pacer's wait for its deadline (pacing.h), game thread
     Overlay,       // the overlay's ImGui frame (render thread)
     Present,       // the swap chain's Present (render thread: GPU, vsync, driver)
     Count

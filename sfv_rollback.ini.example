@@ -75,6 +75,13 @@ menu_after_match=1
 ; for desync hunting between test PCs). 0: only around desyncs, with a
 ; checksum for every frame (a few hundred KB; what players should send).
 full_recordings=0
+; 1: a save that can never be loaded (the inputs of the next frame are
+; confirmed: the delay covers the latency) keeps its checksum but skips the
+; state copy. 0: every save copies (for comparing the costs).
+skip_saves=1
+; 1: after each rollback's load, the state's checksum is compared with the one
+; taken when that frame was saved; a mismatch is logged (a save/load bug).
+verify_loads=1
 ; 1: when the two games' frozen starting states differ (memory the game has
 ; not initialised yet), the joiner takes the host's values before the
 ; session starts (pointer-like values and masked words excepted).

@@ -29,6 +29,7 @@ struct MockMatchResult {
     int desyncCount[kNumPlayers] = {};
     int reportsRaised[kNumPlayers] = {};
     GekkoRollbackStats rollbacks[kNumPlayers] = {};
+    NetplaySession::SaveStats saves[kNumPlayers];
 };
 
 MockMatchResult RunMockMatch(const MockMatchOptions& options);

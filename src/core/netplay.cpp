@@ -4,6 +4,9 @@
 #include "core/state.h"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 
@@ -156,6 +159,15 @@ void NetplaySession::Leave()
     phase_ = NetplayPhase::Ended;
 }
 
+namespace {
+using CostClock = std::chrono::steady_clock;
+double MicrosSince(CostClock::time_point t)
+{
+    return std::chrono::duration<double, std::micro>(CostClock::now() - t).count();
+}
+constexpr int kCostEvery = 600;
+} // namespace
+
 void NetplaySession::HandleGameEvent(GekkoGameEvent* ev)
 {
     const auto& regions = game_.Regions();
@@ -166,9 +178,15 @@ void NetplaySession::HandleGameEvent(GekkoGameEvent* ev)
         FrameInputs in;
         std::memcpy(in.p, adv.inputs, std::min<size_t>(adv.input_len, sizeof(in.p)));
 
+        auto t = CostClock::now();
         game_.Advance(in, adv.rolling_back);
+        (adv.rolling_back ? costs_.replayTick : costs_.tick) += MicrosSince(t);
+        (adv.rolling_back ? costs_.replayed : costs_.ticks)++;
+        t = CostClock::now();
         HashRegions(regions, frameHashes_.data());
+        costs_.hash += MicrosSince(t);
         hashedFrame_ = adv.frame;
+        t = CostClock::now();
 
         // Stress mode resimulates frames it has simulated before with the same
         // inputs: name the regions, and the words, that came out different.
@@ -197,6 +215,27 @@ void NetplaySession::HandleGameEvent(GekkoGameEvent* ev)
         if (decided_.size() <= size_t(adv.frame)) decided_.resize(adv.frame + 1, 0);
         decided_[adv.frame] = game_.OutcomeDecided();
         history_.Store(adv.frame, regions);
+        costs_.record += MicrosSince(t);
+        if (costs_.ticks + costs_.replayed >= kCostEvery) {
+            Costs& c = costs_;
+            const int n = c.ticks + c.replayed;
+            // Per advance unless said; "per frame" is the whole work over the
+            // frames that were not replays (about one per rendered frame).
+            char buf[480];
+            std::snprintf(buf, sizeof(buf),
+                          "costs over %d advances (%d replayed, %d loads, %d of %d saves skipped%s): tick %.0f us, "
+                          "replayed tick %.0f us, hash %.0f us, recording+history %.0f us, save %.0f us; "
+                          "load %.0f us + callbacks %.0f us per load; %.2f ms per frame",
+                          n, c.replayed, c.loads, c.skippedSaves, c.saves + c.skippedSaves,
+                          c.loadMismatches ? (", " + std::to_string(c.loadMismatches) + " LOAD MISMATCHES").c_str() : "",
+                          c.ticks ? c.tick / c.ticks : 0, c.replayed ? c.replayTick / c.replayed : 0, c.hash / n, c.record / n,
+                          (c.save) / std::max(1, c.saves + c.skippedSaves), c.loads ? c.load / c.loads : 0,
+                          c.loads ? c.loadCallbacks / c.loads : 0,
+                          (c.tick + c.replayTick + c.hash + c.record + c.save + c.load + c.loadCallbacks) / 1000.0 /
+                              std::max(1, c.ticks));
+            Log(buf);
+            c = {};
+        }
         nextFrame_ = adv.frame + 1;
         highestFrame_ = std::max(highestFrame_, adv.frame);
 
@@ -216,21 +255,57 @@ void NetplaySession::HandleGameEvent(GekkoGameEvent* ev)
     }
     case GekkoSaveEvent: {
         const auto& save = ev->data.save;
+        const auto t = CostClock::now();
         if (save.frame != hashedFrame_) {
             HashRegions(regions, frameHashes_.data());
             hashedFrame_ = save.frame;
         }
-        SaveRegions(regions, save.state);
+        // GekkoNet loads frame (first mispredicted - 1) only, and confirmed
+        // inputs never change: with the inputs of frame + 1 confirmed this
+        // state can never be loaded (a stress session confirms nothing).
+        const bool skip = config_.skipUnloadableSaves && gekko_confirmed_frame(session_) >= save.frame + 1;
+        if (!skip) SaveRegions(regions, save.state);
         *save.state_len = static_cast<unsigned int>(StateSize(regions));
+        const uint32_t sum = FoldChecksum(frameHashes_.data(), frameHashes_.size());
+        saved_[save.frame % saved_.size()] = {save.frame, sum, skip};
         // After the outcome every state compares equal: the win screens
         // follow each machine's own menu input.
-        *save.checksum = game_.OutcomeDecided() ? 0 : FoldChecksum(frameHashes_.data(), frameHashes_.size());
+        *save.checksum = game_.OutcomeDecided() ? 0 : sum;
+        costs_.save += MicrosSince(t);
+        (skip ? costs_.skippedSaves : costs_.saves)++;
+        saveCounts_.saves++;
+        if (skip) saveCounts_.skipped++;
         break;
     }
     case GekkoLoadEvent: {
         const auto& load = ev->data.load;
+        auto t = CostClock::now();
+        const SavedFrame& was = saved_[load.frame % saved_.size()];
+        if (was.frame == load.frame && was.skipped) {
+            // Cannot happen if the rule above holds; the state loaded is stale.
+            Log("load of frame " + std::to_string(load.frame) + ", whose save was skipped: the state is wrong from here");
+        }
         LoadRegions(regions, load.state);
+        if (config_.verifyLoads && was.frame == load.frame) {
+            HashRegions(regions, frameHashes_.data());
+            const uint32_t sum = FoldChecksum(frameHashes_.data(), frameHashes_.size());
+            if (sum != was.checksum) {
+                costs_.loadMismatches++;
+                saveCounts_.loadMismatches++;
+                if (loadMismatches_++ < 8) {
+                    char buf[160];
+                    std::snprintf(buf, sizeof(buf), "load of frame %d: checksum %08x, saved as %08x", load.frame, sum,
+                                  was.checksum);
+                    Log(buf);
+                }
+            }
+        }
+        costs_.load += MicrosSince(t);
+        t = CostClock::now();
         game_.OnStateLoaded(load.frame);
+        costs_.loadCallbacks += MicrosSince(t);
+        costs_.loads++;
+        saveCounts_.loads++;
         recording_.events.push_back({load.frame, ReplayEventType::Rollback,
                                      static_cast<uint32_t>(std::max(0, nextFrame_ - 1 - load.frame)), 0});
         hashedFrame_ = -2;

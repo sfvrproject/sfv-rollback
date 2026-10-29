@@ -20,6 +20,10 @@ include(FetchContent)
 FetchContent_Declare(gekkonet
   GIT_REPOSITORY https://github.com/HeatXD/GekkoNet.git
   GIT_TAG 9da2363d7c5a68cc77f8dfe2da7cf51d3afe3bee # 2026-10-25
+  # The mod's change: gekko_confirmed_frame, so saves that can never be
+  # loaded skip their copy (src/core/netplay.cpp). The wire protocol is unchanged.
+  PATCH_COMMAND ${CMAKE_COMMAND} -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/third_party/gekkonet.patch
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/apply-patch.cmake
   SOURCE_SUBDIR GekkoLib)
 set(NO_ASIO_BUILD ON CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -147,6 +151,7 @@ if(SFV_BUILD_MOD AND WIN32)
     src/mod/updater.cpp
     src/mod/flow.cpp
     src/mod/hitch.cpp
+    src/mod/pacing.cpp
     src/mod/outside_probe.cpp
     src/mod/overlay.cpp
     src/mod/ue4.cpp

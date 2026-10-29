@@ -4,6 +4,8 @@
 #include <array>
 #include <cstring>
 
+#include <xmmintrin.h>
+
 namespace sfv {
 
 namespace {
@@ -132,17 +134,78 @@ namespace {
 
 AddressTest g_addressTest = nullptr;
 
+// Hash64 of `len` bytes with every byte of a masked 8-byte word read as zero:
+// the same value as Hash64 over a copy with those words cleared, without the
+// copy (which doubled the cost over SFV's 436 KB of mostly masked regions).
+uint64_t Hash64Masked(const uint8_t* data, size_t len, const std::vector<uint8_t>& ignore)
+{
+    auto word = [&](size_t offset) { return IsIgnored(ignore, offset) ? 0 : Read64(data + offset); };
+    size_t at = 0;
+    uint64_t h;
+    if (len >= 32) {
+        uint64_t v1 = P1 + P2, v2 = P2, v3 = 0, v4 = 0 - P1;
+        do {
+            // A stripe is 4 words, half a mask byte; most have no bit set.
+            const size_t byte = at / 64;
+            const unsigned bits = byte < ignore.size() ? (ignore[byte] >> ((at / 32) % 2 * 4)) & 0xF : 0;
+            if (bits == 0) {
+                v1 = Round(v1, Read64(data + at));
+                v2 = Round(v2, Read64(data + at + 8));
+                v3 = Round(v3, Read64(data + at + 16));
+                v4 = Round(v4, Read64(data + at + 24));
+            }
+            else {
+                v1 = Round(v1, bits & 1 ? 0 : Read64(data + at));
+                v2 = Round(v2, bits & 2 ? 0 : Read64(data + at + 8));
+                v3 = Round(v3, bits & 4 ? 0 : Read64(data + at + 16));
+                v4 = Round(v4, bits & 8 ? 0 : Read64(data + at + 24));
+            }
+            at += 32;
+        } while (at + 32 <= len);
+        h = Rotl(v1, 1) + Rotl(v2, 7) + Rotl(v3, 12) + Rotl(v4, 18);
+        h = MergeRound(h, v1);
+        h = MergeRound(h, v2);
+        h = MergeRound(h, v3);
+        h = MergeRound(h, v4);
+    }
+    else {
+        h = P5;
+    }
+    h += static_cast<uint64_t>(len);
+    for (; at + 8 <= len; at += 8) {
+        h ^= Round(0, word(at));
+        h = Rotl(h, 27) * P1 + P4;
+    }
+    // A partial last word: masked bytes read as zero too.
+    const bool tailMasked = at < len && IsIgnored(ignore, at);
+    if (at + 4 <= len) {
+        h ^= static_cast<uint64_t>(tailMasked ? 0 : Read32(data + at)) * P1;
+        h = Rotl(h, 23) * P2 + P3;
+        at += 4;
+    }
+    for (; at < len; at++) {
+        h ^= (tailMasked ? 0 : data[at]) * P5;
+        h = Rotl(h, 11) * P1;
+    }
+    h ^= h >> 33;
+    h *= P2;
+    h ^= h >> 29;
+    h *= P3;
+    h ^= h >> 32;
+    return h;
+}
+
 uint64_t HashRegion(const uint8_t* data, const StateRegion& region)
 {
     const AddressTest isAddress = g_addressTest;
-    if (region.ignore.empty() && !isAddress) return Hash64(data, region.size);
+    if (!isAddress) return region.ignore.empty() ? Hash64(data, region.size) : Hash64Masked(data, region.size, region.ignore);
 
     thread_local std::vector<uint8_t> scratch;
     scratch.assign(data, data + region.size);
     for (size_t word = 0; word * 8 < region.size; word++) {
         const size_t len = std::min<size_t>(8, region.size - word * 8);
         bool masked = IsIgnored(region.ignore, word * 8);
-        if (!masked && isAddress && len == 8) masked = isAddress(Read64(&scratch[word * 8]));
+        if (!masked && len == 8) masked = isAddress(Read64(&scratch[word * 8]));
         if (masked) std::memset(&scratch[word * 8], 0, len);
     }
     return Hash64(scratch.data(), scratch.size());
@@ -156,7 +219,18 @@ bool IsProcessAddress(uint64_t value) { return g_addressTest && g_addressTest(va
 
 void HashRegions(const std::vector<StateRegion>& regions, uint64_t* out)
 {
-    for (size_t i = 0; i < regions.size(); i++) out[i] = HashRegion(regions[i].ptr, regions[i]);
+    // The regions lie all over the heap, mostly out of cache: the start of
+    // the next ones is fetched while this one hashes.
+    constexpr size_t kAhead = 2, kLines = 4;
+    for (size_t i = 0; i < regions.size(); i++) {
+        if (i + kAhead < regions.size()) {
+            const StateRegion& next = regions[i + kAhead];
+            for (size_t l = 0; l < kLines && l * 64 < next.size; l++) {
+                _mm_prefetch(reinterpret_cast<const char*>(next.ptr) + l * 64, _MM_HINT_T0);
+            }
+        }
+        out[i] = HashRegion(regions[i].ptr, regions[i]);
+    }
 }
 
 void HashSavedState(const std::vector<StateRegion>& regions, const uint8_t* state, uint64_t* out)
@@ -170,7 +244,8 @@ void HashSavedState(const std::vector<StateRegion>& regions, const uint8_t* stat
 uint32_t FoldChecksum(const uint64_t* regionHashes, size_t count)
 {
     // Order-independent: peers may list the same regions in a different order.
-    std::vector<uint64_t> sorted(regionHashes, regionHashes + count);
+    thread_local std::vector<uint64_t> sorted;
+    sorted.assign(regionHashes, regionHashes + count);
     std::sort(sorted.begin(), sorted.end());
     const uint64_t h = Hash64(sorted.data(), count * sizeof(uint64_t));
     return static_cast<uint32_t>(h ^ (h >> 32));

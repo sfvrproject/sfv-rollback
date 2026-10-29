@@ -7,6 +7,23 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- Smoother time sync: the side that runs ahead stretches its frames by a
+  few percent (paced to an exact 60 Hz before the game reads the pads)
+  instead of repeating a whole frame; only a lead of 8 frames or more still
+  drops one. The pace log says how much was stretched.
+- Cheaper rollback bookkeeping: the state checksum's mask is applied word by
+  word only where it is set (same checksums), and a save whose next frame's
+  inputs are already confirmed (the delay covers the latency) skips its state
+  copy (`[netplay] skip_saves`).
+
+### Added
+
+- Every load is checked against the checksum taken when that frame was saved
+  (`[netplay] verify_loads`), and a `costs over 600 advances` log line says
+  where the netplay time goes (ticks, replays, hashing, saves, loads).
+
 ## [0.1.1] - 2026-10-29
 
 Fixes from the first test sessions: players with the same version always
