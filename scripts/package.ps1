@@ -1,4 +1,4 @@
-# Packs this build for another PC: dist\sfv-rollback-<version>.zip with
+# Packs this build for another PC: dist\sfvr-<version>.zip (SFVR) with
 #   Win64\          what goes next to StreetFighterV.exe (StreetFighterV\Binaries\Win64):
 #                   the loader, the mod, the noise mask, an ini
 #   sfv-rollback\   what goes into the game's folder for tests (the scripts and
@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
 $build = Join-Path $root 'build\Release'
 $version = (Select-String -Path (Join-Path $root 'src\mod\mod_main.cpp') -Pattern 'kModVersion = "([^"]+)"').Matches.Groups[1].Value
-$name = "sfv-rollback-$version"
+$name = "sfvr-$version"
 $out = Join-Path $root "dist\$name"
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 $win = New-Item -ItemType Directory -Force (Join-Path $out 'Win64')

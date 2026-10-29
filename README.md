@@ -1,6 +1,6 @@
-# sfv-rollback (prototype)
+# SFVR (prototype)
 
-Rollback netplay for Street Fighter V built on the game's **local Versus** mode
+SFVR is rollback netplay for Street Fighter V, built on the game's **local Versus** mode
 and its own rollback manager, using [GekkoNet](https://github.com/HeatXD/GekkoNet)
 over [Weyvelength](https://github.com/HeatXD/Weyvelength) rooms and
 peer-to-peer links. The game's online code (ProudNet, Capcom servers,

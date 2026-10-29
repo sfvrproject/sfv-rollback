@@ -106,7 +106,7 @@ DWORD WINAPI ModMain(LPVOID self)
     if (!InstallProbes(image, config, &game, &stateMap, stateMapPath)) return 0;
     InstallControl(dir + L"\\sfv_cmd" + suffix + L".txt", config.virtualPads, config.alwaysActive);
     InstallOverlay(panelPath);
-    SetOverlayBuild(kModVersion);
+    SetOverlayBuild(std::string("SFVR ") + kModVersion);
     InstallBattleSetup(image);
     InstallBootProbes(image, config.verbose);
     InstallFreePlayGuard(image);
