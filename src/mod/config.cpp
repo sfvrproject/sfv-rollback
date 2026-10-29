@@ -62,7 +62,7 @@ void ReadNetplayChoices(const std::wstring& path, NetplayOptions& n, bool onlyPr
     // The Debug tab's server switch, and the servers used before.
     if (onlyPresent && has(L"server")) {
         const std::string server = Ascii(ReadString(path, L"netplay", L"server", L""));
-        if (!server.empty()) n.server = server;
+        if (!server.empty()) n.server = n.savedServer = server;
     }
     if (onlyPresent && has(L"recent_servers")) {
         n.recentServers.clear();
@@ -99,7 +99,7 @@ void SaveNetplayChoices(const std::wstring& path, const NetplayOptions& n, const
     Write(path, L"name", n.name);
     Write(path, L"allow_spectators", n.allowSpectators ? "1" : "0");
     Write(path, L"show_fps", n.showOwnFps ? "1" : "0");
-    Write(path, L"server", n.server);
+    Write(path, L"server", n.savedServer);
     std::string recent;
     for (const std::string& s : n.recentServers) recent += (recent.empty() ? "" : ";") + s;
     Write(path, L"recent_servers", recent);

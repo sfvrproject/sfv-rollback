@@ -40,6 +40,10 @@ inline constexpr const char* kDefaultServer = "159.69.32.141:5555";
 struct NetplayOptions {
     bool udp = false;                      // the testing transport (U- codes) instead of Weyvelength rooms
     std::string server = kDefaultServer;    // Weyvelength server, host[:port]
+    // The server the panel chose (its Debug tab, or its saved settings), the
+    // one its settings file keeps; empty: none. A `server` command (test
+    // scripts) changes `server` for this run only, not this.
+    std::string savedServer;
     std::vector<std::string> recentServers; // the Debug tab's list, newest first
     std::string name;                      // display name; empty: the Steam persona name
     uint16_t udpPort = 47001;              // UDP: the host listens here; a joiner binds any port

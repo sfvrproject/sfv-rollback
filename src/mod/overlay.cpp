@@ -1504,7 +1504,7 @@ void DrawServerControls()
         if (chosen.empty()) return;
         Act([chosen] {
             NetplayOptions& o = NetOptions();
-            o.server = chosen;
+            o.server = o.savedServer = chosen;
             auto& recent = o.recentServers;
             recent.erase(std::remove(recent.begin(), recent.end(), chosen), recent.end());
             recent.insert(recent.begin(), chosen);
