@@ -141,6 +141,7 @@ if(SFV_BUILD_MOD AND WIN32)
     src/mod/battle_driver.cpp
     src/mod/battle_setup.cpp
     src/mod/boot.cpp
+    src/mod/files.cpp
     src/mod/flow.cpp
     src/mod/hitch.cpp
     src/mod/outside_probe.cpp
@@ -161,7 +162,7 @@ if(SFV_BUILD_MOD AND WIN32)
     src/mod/netplay_driver.cpp
     src/mod/udp_transport.cpp
     src/mod/weyve_service.cpp)
-  target_link_libraries(sfv_rollback PRIVATE sfvcore minhook imgui weyvelength_client ws2_32 iphlpapi)
+  target_link_libraries(sfv_rollback PRIVATE sfvcore minhook imgui weyvelength_client ws2_32 iphlpapi shell32)
   if(MSVC)
     # Symbols for crash stacks (scripts/symbolize.py); the code stays optimised.
     target_compile_options(sfv_rollback PRIVATE /Zi)

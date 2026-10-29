@@ -10,6 +10,7 @@
 #include "mod/image.h"
 #include "mod/netplay_driver.h"
 #include "mod/lifecycle.h"
+#include "mod/files.h"
 #include "mod/log.h"
 #include "mod/probes.h"
 #include "mod/sfv_game.h"
@@ -55,12 +56,18 @@ DWORD WINAPI ModMain(LPVOID self)
     GetEnvironmentVariableW(L"SFV_INSTANCE", instanceText, 8);
     const int instance = _wtoi(instanceText);
     const std::wstring suffix = instance == 0 ? L"" : L"." + std::to_wstring(instance);
-    LogOpen(dir + L"\\sfv_rollback" + suffix + L".log");
+    // The event log in the SFVR folder players share (files.h); the last
+    // run's moves aside first.
+    SetDataDir(dir + L"\\SFVR");
+    EnsureDirectory(LogsDir());
+    EnsureDirectory(MatchesDir());
+    RotateLog(LogsDir(), L"sfvr" + suffix);
+    LogOpen(LogsDir() + L"\\sfvr" + suffix + L".log");
     std::wstring iniPath = dir + L"\\sfv_rollback" + suffix + L".ini";
     if (GetFileAttributesW(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES) iniPath = dir + L"\\sfv_rollback.ini";
     const std::wstring panelPath = dir + L"\\sfv_rollback.panel" + suffix + L".ini";
     const Config config = LoadConfig(iniPath, dir, panelPath);
-    Log("sfv_rollback %s, instance %d, mode %s", kModVersion, instance, ModeName(config.mode));
+    Log("SFVR %s, instance %d, mode %s", kModVersion, instance, ModeName(config.mode));
     {
         HMODULE module = nullptr;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,

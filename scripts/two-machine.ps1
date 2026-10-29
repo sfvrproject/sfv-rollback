@@ -16,7 +16,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'remote.ps1') -Agent $Agent -Token $Token
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
 $sfvr = Join-Path $PSScriptRoot '..\build\Release\sfvr.exe'
-$log0 = Join-Path $w 'sfv_rollback.log'
+$log0 = Join-Path $w 'SFVR\logs\sfvr.log'
 $outDir = if ($Out) { $Out } else { Join-Path $w ("reports\two-machine-" + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 function Say($text) { $text; Add-Content -Path (Join-Path $outDir 'summary.txt') -Value $text }

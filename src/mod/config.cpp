@@ -155,7 +155,7 @@ Config LoadConfig(const std::wstring& path, const std::wstring& dllDir, const st
     c.alwaysActive = ReadInt(path, L"control", L"always_active", 0) != 0;
 
     c.reportDir = ReadString(path, L"mod", L"report_dir", L"");
-    if (c.reportDir.empty()) c.reportDir = dllDir + L"\\reports";
+    if (c.reportDir.empty()) c.reportDir = dllDir + L"\\SFVR\\matches";
     return c;
 }
 

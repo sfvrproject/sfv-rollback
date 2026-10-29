@@ -10,4 +10,4 @@ foreach ($i in $Instances) {
   while ((Test-Path $trig) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100 }
 }
 Start-Sleep -Milliseconds 1500
-Get-Content (Join-Path $w 'sfv_rollback.log') -Tail 8
+Get-Content (Join-Path $w 'SFVR\logs\sfvr.log') -Tail 8

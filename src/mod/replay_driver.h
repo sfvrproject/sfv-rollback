@@ -25,7 +25,8 @@
 namespace sfv::mod {
 
 // From any thread; starts with the next battle frame or jump. A relative path
-// is taken from the game's reports folder. "stop" ends the running replay.
+// is taken from SFVR\matches, else the reports folder earlier builds used.
+// "stop" ends the running replay.
 // watchFrom..watchTo (-1: none): logs watchRegion's first 16 bytes and the
 // round's end state for each of those frames (research).
 void RequestReplay(const std::string& path, int stressDistance, int watchFrom = -1, int watchTo = -1,

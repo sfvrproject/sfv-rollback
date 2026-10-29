@@ -5,7 +5,7 @@
 param([string]$P1 = 'ZGF', [string]$P2 = 'KRN')
 $s = $PSScriptRoot
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
-$log = "$w\sfv_rollback.log"
+$log = "$w\SFVR\logs\sfvr.log"
 $n0 = @(Get-Content $log).Count
 & "$s\cmd.ps1" -Instance 0 -Commands "pick $P1 0 1 0 1 1; host" -WaitMs 2500 | Out-Null
 $code = (Get-Content $log | Select-Object -Skip $n0 | Select-String 'hosting, code (\S+)' | Select-Object -Last 1).Matches.Groups[1].Value

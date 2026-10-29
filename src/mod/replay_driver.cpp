@@ -7,6 +7,7 @@
 #include "mod/battle_driver.h"
 #include "mod/battle_setup.h"
 #include "mod/control.h"
+#include "mod/files.h"
 #include "mod/flow.h"
 #include "mod/log.h"
 #include "mod/sfv_game.h"
@@ -34,16 +35,21 @@ public:
     bool Receive(Packet&) override { return false; }
 };
 
-// The game's reports folder (next to its exe).
-std::string ReportsDir()
+// Where a bare file name is looked for: SFVR\matches (files.h), then the
+// reports folder earlier builds wrote to (next to the exe).
+std::string FindRecording(const std::string& name)
 {
+    std::string matches;
+    for (wchar_t c : MatchesDir()) matches += c < 128 ? static_cast<char>(c) : '_';
+    const std::string inMatches = matches + "\\" + name;
+    if (GetFileAttributesA(inMatches.c_str()) != INVALID_FILE_ATTRIBUTES) return inMatches;
     wchar_t exe[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
     std::wstring dir(exe);
     dir = dir.substr(0, dir.find_last_of(L"\\/"));
     std::string out;
     for (wchar_t c : dir) out += c < 128 ? static_cast<char>(c) : '_';
-    return out + "\\reports\\";
+    return out + "\\reports\\" + name;
 }
 
 class ReplayDriver : public IFrameDriver {
@@ -411,7 +417,7 @@ void RequestReplay(const std::string& path, int stressDistance, int watchFrom, i
         return;
     }
     const bool relative = path.size() < 2 || (path[1] != ':' && path[0] != '\\' && path[0] != '/');
-    const std::string full = relative ? ReportsDir() + path : path;
+    const std::string full = relative ? FindRecording(path) : path;
     ReplayFile rf;
     std::string error;
     if (!LoadReplay(full, &rf, &error)) {

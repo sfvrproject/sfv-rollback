@@ -1,5 +1,6 @@
 #include "mod/control.h"
 #include "mod/battle_driver.h"
+#include "mod/files.h"
 #include "mod/flow.h"
 
 #include "mod/lifecycle.h"
@@ -261,6 +262,7 @@ DWORD WINAPI GetStateDetour(DWORD user, XINPUT_STATE* state)
 // | dumps <every N frames> [max] (state dumps in match recordings)
 // | recordings full|compact (region hashes for every frame, or only around desyncs)
 // | server [host:port] (the rooms server for the next host/join, this game only)
+// | packlogs (the SFVR folder's logs and latest matches into a zip to share)
 // | pick <code costume color comment vskill vtrigger> | stage <n> | netstatus
 // | name [text] (the name test sessions use; none: back to "Player <instance + 1>")
 // | delay <frames> (this player's input delay for the next host/join)
@@ -319,6 +321,11 @@ void RunNetCommand(const std::string& line)
     else if (cmd == "name") {
         std::getline(ss >> std::ws, g_testName);
         Log("netplay: test sessions play as %s", TestName().c_str());
+    }
+    else if (cmd == "packlogs") {
+        // packlogs: what Settings, Logs, "Pack logs to share" does (files.h).
+        std::string error;
+        if (PackLogsToShare(&error).empty()) Log("files: cannot pack the logs: %s", error.c_str());
     }
     else if (cmd == "server") {
         // server [host:port]: the rooms server the next host/join uses, in
@@ -649,7 +656,7 @@ void RunNetCommand(const std::string& line)
         FindPointer(v);
     }
     else if (cmd == "replay") {
-        // replay <file in reports\ or a full path> [stress <distance>]
+        // replay <file in SFVR\matches (or reports\) or a full path> [stress <distance>]
         // ... [watch <from> <to> <region>]
         std::string file, word, region;
         int stress = 0, from = -1, to = -1;
@@ -889,7 +896,7 @@ bool Parse(const std::string& line, Step& step)
         step.setup.stage = static_cast<uint16_t>(stage);
         return !ss.fail();
     }
-    if (cmd == "host" || cmd == "join" || cmd == "spectate" || cmd == "server" || cmd == "name" || cmd == "delay" || cmd == "transport" || cmd == "ready" || cmd == "choose" || cmd == "leave" || cmd == "netsim" || cmd == "mash" || cmd == "dumps" || cmd == "recordings" || cmd == "pick" ||
+    if (cmd == "host" || cmd == "join" || cmd == "spectate" || cmd == "server" || cmd == "packlogs" || cmd == "name" || cmd == "delay" || cmd == "transport" || cmd == "ready" || cmd == "choose" || cmd == "leave" || cmd == "netsim" || cmd == "mash" || cmd == "dumps" || cmd == "recordings" || cmd == "pick" ||
         cmd == "stage" || cmd == "netstatus" || cmd == "battle" || cmd == "setstage" || cmd == "park" || cmd == "peek" || cmd == "battlenow" || cmd == "findptr" || cmd == "members" || cmd == "worldctx" || cmd == "poke" || cmd == "stages" || cmd == "nextstage" || cmd == "recdiff" || cmd == "outsidetest" || cmd == "tasklist" || cmd == "phases" || cmd == "regions" || cmd == "costumes" || cmd == "variants" || cmd == "presets" || cmd == "freeplay" || cmd == "relayonly" || cmd == "vsync" || cmd == "uniqueparam" || cmd == "datatable" || cmd == "replay" || cmd == "classes" || cmd == "classinfo" || cmd == "named" || cmd == "scene" || cmd == "relocate" || cmd == "menu" || cmd == "overlay" || cmd == "charas" || cmd == "find" || cmd == "watchregion" || cmd == "packages" || cmd == "preload" || cmd == "charcache" || cmd == "drawlog" || cmd == "inputlog" || cmd == "mappedlog" || cmd == "versions" || cmd == "uipads" || cmd == "uistart") {
         step.kind = Step::Net;
         step.line = line;

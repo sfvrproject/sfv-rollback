@@ -2,6 +2,7 @@
 
 #include "core/match_code.h"
 #include "mod/config.h"
+#include "mod/files.h"
 #include "mod/flow.h"
 #include "mod/hitch.h"
 #include "mod/lifecycle.h"
@@ -66,6 +67,7 @@ std::atomic<HWND> g_inputWindow{nullptr}; // the window ImGui reads input for
 std::string g_build;                      // the mod's version (SetOverlayBuild)
 std::atomic<float> g_fps{0};              // presented frames per second (RenderFps)
 bool g_inMatch = false;                   // render thread: a netplay match runs (for the frame-drop log)
+std::string g_packResult;                 // render thread: what the last "Pack logs to share" did
 std::atomic<bool> g_noVsync{false};       // present without waiting for the display's refresh
 std::atomic<UINT> g_gameSyncInterval{0};  // the sync interval and flags the game presents with (VsyncInfo)
 std::atomic<UINT> g_gamePresentFlags{0};
@@ -1086,6 +1088,29 @@ void DrawSettings(bool locked)
     if (NetOptions().udp) ImGui::TextDisabled("Transport: UDP, for testing (sfv_rollback.ini)");
     else ImGui::TextDisabled("Server: %s (change it in the Debug tab)", NetOptions().server.c_str());
     if (changed) SaveChoices();
+
+    // The SFVR folder next to the game (files.h): what a player sends.
+    ImGui::Spacing();
+    Heading("Logs");
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 440 * g_uiScale);
+    ImGui::TextColored(kDim, "Event logs and match recordings are in the SFVR folder next to the game. "
+                             "To report a problem, pack them and send the zip.");
+    ImGui::PopTextWrapPos();
+    if (TileButton("Open folder")) OpenDataFolder();
+    ImGui::SameLine();
+    if (TileButton("Pack logs to share")) {
+        // A few MB read and written at once: a short stall, on a click.
+        std::string error;
+        const std::wstring zip = PackLogsToShare(&error);
+        if (zip.empty()) g_packResult = "Could not pack the logs: " + error;
+        else {
+            std::string name;
+            for (wchar_t ch : zip.substr(zip.find_last_of(L'\\') + 1)) name += ch < 128 ? static_cast<char>(ch) : '_';
+            g_packResult = "Packed " + name + " in the SFVR folder";
+            OpenDataFolder(zip);
+        }
+    }
+    if (!g_packResult.empty()) ImGui::TextColored(kDim, "%s", g_packResult.c_str());
 }
 
 // In a session: the panel's pick, the host's stage and this player's delay

@@ -20,7 +20,7 @@ for ($i = $running; $i -lt $Count; $i++) {
 }
 # Each instance logs to sfv_rollback[.N].log; one that started after $mark is
 # up once it shows the main menu (instances already running are left alone).
-$logs = @(0..($Count - 1) | ForEach-Object { Join-Path $w ($(if ($_ -eq 0) { 'sfv_rollback.log' } else { "sfv_rollback.$_.log" })) })
+$logs = @(0..($Count - 1) | ForEach-Object { Join-Path $w ($(if ($_ -eq 0) { 'SFVR\logs\sfvr.log' } else { "SFVR\logs\sfvr.$_.log" })) })
 $launched = [Math]::Max(0, $Count - $running)
 $deadline = $start.AddSeconds($TimeoutSeconds)
 $up = @{}

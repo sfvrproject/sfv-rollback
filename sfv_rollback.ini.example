@@ -10,7 +10,7 @@ mode=probe
 ; 1 = more than one game instance on this PC (instance N uses sfv_rollback.N.log,
 ; sfv_cmd.N.txt and the window title "[sfv N]"); for local netplay tests
 multi_instance=0
-; report_dir=   (default: reports\ next to the DLL)
+; report_dir=   (match recordings and logs; default: SFVR\matches next to the DLL)
 
 [boot]
 ; 1: no server login. The title runs its local preparation, then takes the

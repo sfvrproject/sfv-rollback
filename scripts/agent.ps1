@@ -23,7 +23,7 @@ param([Parameter(Mandatory)][string]$Token, [int]$Port = 47100)
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $game = (Resolve-Path (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')).Path
-function LogOf([int]$i) { Join-Path $game ($(if ($i -eq 0) { 'sfv_rollback.log' } else { "sfv_rollback.$i.log" })) }
+function LogOf([int]$i) { Join-Path $game ($(if ($i -eq 0) { 'SFVR\logs\sfvr.log' } else { "SFVR\logs\sfvr.$i.log" })) }
 . (Join-Path $PSScriptRoot 'logtail.ps1')
 $script:logState = @{} # the log op's per instance tails
 # A path the request names, kept inside the game's Win64 folder or the repo.

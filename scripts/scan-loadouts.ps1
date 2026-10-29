@@ -10,7 +10,7 @@
 param([string]$Noise = (Join-Path $env:TEMP 'sfv_noise.scan.txt'), [int]$Seconds = 75, [string[]]$Only = @(),
       [string]$Out = '', [int]$Start = 0)
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
-$logs = @((Join-Path $w 'sfv_rollback.log'), (Join-Path $w 'sfv_rollback.1.log'))
+$logs = @((Join-Path $w 'SFVR\logs\sfvr.log'), (Join-Path $w 'SFVR\logs\sfvr.1.log'))
 $sfvr = Join-Path $PSScriptRoot '..\build\Release\sfvr.exe'
 # Marks are line counts per log (timestamps repeat across days in one log).
 function Since($log, $mark) { Get-Content $log | Select-Object -Skip $mark[$log] }

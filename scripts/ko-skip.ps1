@@ -8,7 +8,7 @@ param([ValidateSet('none', 'host', 'join', 'both')][string]$Press = 'both', [int
       [string]$Stage = 'CHN', [int]$TimeoutSeconds = 600, [int]$PressCount = 25,
       [switch]$UiAtMatchEnd, [switch]$UiStartAtMatchEnd, [string]$UiButton = 'start')
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
-$logs = @((Join-Path $w 'sfv_rollback.log'), (Join-Path $w 'sfv_rollback.1.log'))
+$logs = @((Join-Path $w 'SFVR\logs\sfvr.log'), (Join-Path $w 'SFVR\logs\sfvr.1.log'))
 function Since($log, $mark) { Get-Content $log -Tail 8000 | Where-Object { $_.Length -gt 12 -and $_.Substring(0, 12) -ge $mark } }
 function Stamp($line) { [datetime]::ParseExact($line.Substring(0, 12), 'HH:mm:ss.fff', $null) }
 $ended = 'netplay: (match over|the other player left)'

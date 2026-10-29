@@ -6,7 +6,7 @@ param([int]$Instance = 1, [string[]]$Pads = @('none', '0', '1', 'both'), [int]$P
       [string]$Setup = 'RYU 0 1 0 1 1 KEN 0 1 0 1 1 0', [int]$StartDelayMs = 0,
       [string]$Button = 'a')
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
-$log = Join-Path $w ($(if ($Instance -eq 0) { 'sfv_rollback.log' } else { "sfv_rollback.$Instance.log" }))
+$log = Join-Path $w ($(if ($Instance -eq 0) { 'SFVR\logs\sfvr.log' } else { "SFVR\logs\sfvr.$Instance.log" }))
 function Since($mark) { Get-Content $log -Tail 400 | Where-Object { $_.Length -gt 12 -and $_.Substring(0, 12) -ge $mark } }
 function Stamp($line) { [datetime]::ParseExact($line.Substring(0, 12), 'HH:mm:ss.fff', $null) }
 foreach ($mode in $Pads) {

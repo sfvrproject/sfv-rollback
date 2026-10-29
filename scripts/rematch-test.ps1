@@ -7,7 +7,7 @@
 # rematch running.
 param([int]$HoldSeconds = 40, [string]$Stage = 'CHN', [int[]]$Seeds = @(11, 22), [string]$Shots = (Join-Path $env:TEMP 'sfv-rematch-test'))
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
-function LogOf($i) { Join-Path $w ($(if ($i -eq 0) { 'sfv_rollback.log' } else { "sfv_rollback.$i.log" })) }
+function LogOf($i) { Join-Path $w ($(if ($i -eq 0) { 'SFVR\logs\sfvr.log' } else { "SFVR\logs\sfvr.$i.log" })) }
 $n = @{}; foreach ($i in 0, 1) { $n[$i] = @(Get-Content (LogOf $i)).Count }
 function Since($i) { Get-Content (LogOf $i) | Select-Object -Skip $n[$i] }
 function WaitCount($i, $pattern, $count, $seconds) {

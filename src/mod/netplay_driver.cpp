@@ -8,6 +8,7 @@
 #include "mod/battle_driver.h"
 #include "mod/battle_setup.h"
 #include "mod/control.h"
+#include "mod/files.h"
 #include "mod/flow.h"
 #include "mod/lifecycle.h"
 #include "mod/log.h"
@@ -277,6 +278,7 @@ public:
 
     void StartHost()
     {
+        LogCaptureStart();
         connectingSince_ = Clock::now();
         if (weyve_) {
             weyve_->CreateRoom();
@@ -303,6 +305,7 @@ public:
             return false;
         }
         code_ = EncodeMatchCode(mc);
+        LogCaptureStart();
         connectingSince_ = Clock::now();
         if (weyve_) {
             weyve_->JoinRoom(mc.room);
@@ -418,8 +421,14 @@ public:
         SetRoundDirectorPerTick(false, false);
         // Left mid-match (leave, a new host/join, a reload): keep the recording.
         if (session_) {
-            const std::string path = SaveReport(session_->Recording(), "match");
+            const ReplayFile rf = session_->Recording();
+            const auto rb = session_->RollbackStats();
+            const std::string path = SaveReport(rf, "match");
             Log("netplay: left at frame %d; recording %s", session_->NextFrame(), path.c_str());
+            char summary[160];
+            std::snprintf(summary, sizeof(summary), "left at frame %d: %u rollbacks (max %u), %d desync events",
+                          session_->NextFrame(), rb.total_count, rb.max_frames, session_->DesyncCount());
+            WriteMatchLog(path, rf, summary);
             SetResult("left at frame " + std::to_string(session_->NextFrame()));
             session_.reset();
         }
@@ -1890,15 +1899,21 @@ private:
             const auto rf = session_->Recording();
             const auto rb = session_->RollbackStats();
             const std::string path = SaveReport(rf, "match");
-            Log("netplay: match %s: %d frames, %u rollbacks (max %u), %d desync events; recording %s",
-                Hex64(liveMatch_).substr(0, 8).c_str(), session_->NextFrame(), rb.total_count, rb.max_frames,
-                session_->DesyncCount(), path.c_str());
+            char summary[160];
+            std::snprintf(summary, sizeof(summary), "%d frames, %u rollbacks (max %u), %d desync events",
+                          session_->NextFrame(), rb.total_count, rb.max_frames, session_->DesyncCount());
+            Log("netplay: match %s: %s; recording %s", Hex64(liveMatch_).substr(0, 8).c_str(), summary, path.c_str());
+            WriteMatchLog(path, rf, summary);
             session_.reset();
         }
         if (spectate_) {
-            const std::string path = SaveReport(spectate_->Recording(), "watched");
-            Log("netplay: watched %d frames (%d stalls, %d desyncs); recording %s", spectate_->NextFrame(),
-                spectate_->Stalls(), spectate_->DesyncCount(), path.c_str());
+            const ReplayFile rf = spectate_->Recording();
+            const std::string path = SaveReport(rf, "watched");
+            char summary[160];
+            std::snprintf(summary, sizeof(summary), "watched %d frames (%d stalls, %d desyncs)", spectate_->NextFrame(),
+                          spectate_->Stalls(), spectate_->DesyncCount());
+            Log("netplay: %s; recording %s", summary, path.c_str());
+            WriteMatchLog(path, rf, summary);
             spectate_.reset();
         }
         watchingMatch_ = 0;
@@ -1906,24 +1921,84 @@ private:
         matchLive_ = false;
     }
 
+    // Recordings go to SFVR\matches (files.h) as
+    //   <date>_<time>_<P1 name>-<P1 character>_vs_<P2 name>-<P2 character>_<match id>_<p1|p2|spec>[_desync].sfvr
+    // with '_' only between the parts; the match's log (WriteMatchLog) takes
+    // the same name with .log.
     std::string SaveReport(const ReplayFile& rf, const char* kind)
     {
-        CreateDirectoryW(reportDir_.c_str(), nullptr);
-        char name[96];
+        EnsureDirectory(reportDir_);
+        std::string names[kNumPlayers];
+        {
+            std::lock_guard lock(mutex_);
+            for (int i = 0; i < kNumPlayers; i++) names[i] = seats_[i].name;
+        }
         const std::time_t t = std::time(nullptr);
         std::tm tm;
         localtime_s(&tm, &t);
-        std::snprintf(name, sizeof(name), "%04d%02d%02d-%02d%02d%02d-%s-%s-%s.sfvr", tm.tm_year + 1900, tm.tm_mon + 1,
-                      tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec, Hex64(liveMatch_).substr(0, 8).c_str(),
-                      role_ == Role::Spectator ? "spec" : host_ ? "p1" : "p2", kind);
+        char when[32];
+        std::snprintf(when, sizeof(when), "%04d-%02d-%02d_%02d-%02d-%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                      tm.tm_hour, tm.tm_min, tm.tm_sec);
+        std::string name = when;
+        for (int i = 0; i < kNumPlayers; i++) {
+            const std::string player = FileSafe(names[i], 20, i == 0 ? "P1" : "P2");
+            const std::string character = FileSafe(UnpackCode(rf.setup.players[i].character), 8, "unknown");
+            name += (i == 0 ? "_" : "_vs_") + player + "-" + character;
+        }
+        name += "_" + Hex64(liveMatch_).substr(0, 8) + (role_ == Role::Spectator ? "_spec" : host_ ? "_p1" : "_p2");
+        if (std::strstr(kind, "desync")) name += "_desync";
         std::string dir;
         for (wchar_t c : reportDir_) dir += c < 128 ? static_cast<char>(c) : '_';
-        const std::string path = dir + "\\" + name;
+        const std::string path = dir + "\\" + name + ".sfvr";
         std::string error;
         const ReplayDetail detail = options_.fullRecordings ? ReplayDetail::Full : ReplayDetail::Compact;
         if (!SaveReplay(rf, path, &error, detail)) Log("netplay: cannot save %s: %s", path.c_str(), error.c_str());
         else Log("netplay: saved %s", path.c_str());
+        PruneOldest(reportDir_, L"*.sfvr", kKeptRecordings);
         return path;
+    }
+
+    // The match's own log next to its recording: a summary, then every line
+    // logged since the session began or the last match ended (LogCaptureStart).
+    void WriteMatchLog(const std::string& recording, const ReplayFile& rf, const std::string& summary)
+    {
+        std::string names[kNumPlayers];
+        std::string server;
+        NetView::Path path;
+        {
+            std::lock_guard lock(mutex_);
+            for (int i = 0; i < kNumPlayers; i++) names[i] = seats_[i].name;
+            server = options_.udp ? "direct UDP" : options_.server;
+            path = linkPath_;
+        }
+        const std::string logPath = recording.substr(0, recording.rfind('.')) + ".log";
+        FILE* f = std::fopen(logPath.c_str(), "w");
+        const std::vector<std::string> lines = LogCaptureTake();
+        if (!f) {
+            Log("netplay: cannot write %s", logPath.c_str());
+            return;
+        }
+        const std::time_t t = std::time(nullptr);
+        std::tm tm;
+        localtime_s(&tm, &t);
+        std::fprintf(f, "SFVR %s match log\n", modVersion_.c_str());
+        std::fprintf(f, "match %s, saved %04d-%02d-%02d %02d:%02d:%02d\n", Hex64(liveMatch_).substr(0, 8).c_str(),
+                     tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+        for (int i = 0; i < kNumPlayers; i++) {
+            const PlayerSetup& p = rf.setup.players[i];
+            std::fprintf(f, "P%d %s: %s, costume %u, color %u, V-Skill %u, V-Trigger %u\n", i + 1,
+                         names[i].empty() ? "(no name)" : names[i].c_str(), UnpackCode(p.character).c_str(), p.costume,
+                         p.color + 1, p.vskill + 1, p.vtrigger + 1);
+        }
+        std::fprintf(f, "this side: %s\n", role_ == Role::Spectator ? "spectator" : host_ ? "P1 (host)" : "P2");
+        std::fprintf(f, "server %s, link %s, input delay %u\n", server.c_str(),
+                     path == NetView::Path::Relayed ? "relayed (TURN)" : path == NetView::Path::Direct ? "direct" : "unknown",
+                     options_.inputDelay);
+        std::fprintf(f, "%s\n", summary.c_str());
+        std::fprintf(f, "recording %s\n\n", recording.substr(recording.find_last_of('\\') + 1).c_str());
+        for (const std::string& line : lines) std::fprintf(f, "%s\n", line.c_str());
+        std::fclose(f);
+        PruneOldest(reportDir_, L"*.log", kKeptMatchLogs);
     }
 
     // ----- state -------------------------------------------------------------

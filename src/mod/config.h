@@ -35,7 +35,7 @@ struct Config {
     std::wstring playbackFile;
     int stressDistance = 0;
 
-    std::wstring reportDir; // desync reports; default <dll dir>\reports
+    std::wstring reportDir; // match recordings and logs; default <dll dir>\SFVR\matches (files.h)
 
     NetplayOptions netplay; // [netplay] and [netsim]
 

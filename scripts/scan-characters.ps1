@@ -6,7 +6,7 @@
 # matched, and the recordings to compare (`sfvr peers`, `sfvr changes`).
 param([string]$Opponent = 'KEN', [int]$Seconds = 10, [string[]]$Only = @(), [string]$Out = '')
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
-$logs = @((Join-Path $w 'sfv_rollback.log'), (Join-Path $w 'sfv_rollback.1.log'))
+$logs = @((Join-Path $w 'SFVR\logs\sfvr.log'), (Join-Path $w 'SFVR\logs\sfvr.1.log'))
 $sfvr = Join-Path $PSScriptRoot '..\build\Release\sfvr.exe'
 function Since($log, $mark) { Get-Content $log -Tail 600 | Where-Object { $_.Length -gt 12 -and $_.Substring(0, 12) -ge $mark } }
 function Mark { (Get-Date).ToString('HH:mm:ss.fff') }

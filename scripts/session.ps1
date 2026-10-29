@@ -11,7 +11,7 @@
 param([string[]]$Choices = @('rematch', 'select'), [string]$Stage = 'CHN', [string[]]$Picks = @('RYU', 'KEN'), [int]$Spectate = -1,
       [int]$TimeoutSeconds = 900, [int]$ChooseAfterMs = 1500, [int]$Delay = 0, [string]$Server = '127.0.0.1:5555')
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
-function LogOf($i) { Join-Path $w ($(if ($i -eq 0) { 'sfv_rollback.log' } else { "sfv_rollback.$i.log" })) }
+function LogOf($i) { Join-Path $w ($(if ($i -eq 0) { 'SFVR\logs\sfvr.log' } else { "SFVR\logs\sfvr.$i.log" })) }
 # The lines each log gained since the start, read as they come (logtail.ps1).
 . (Join-Path $PSScriptRoot 'logtail.ps1')
 $tails = @{}

@@ -13,7 +13,7 @@ $sfvr = (Join-Path $PSScriptRoot '..\build\Release\sfvr.exe')
 $rng = New-Object System.Random $Seed
 $results = @()
 
-function Log($i) { if ($i -eq 0) { Join-Path $w 'sfv_rollback.log' } else { Join-Path $w "sfv_rollback.$i.log" } }
+function Log($i) { if ($i -eq 0) { Join-Path $w 'SFVR\logs\sfvr.log' } else { Join-Path $w "SFVR\logs\sfvr.$i.log" } }
 function Cmd($i, $text) {
     $f = if ($i -eq 0) { Join-Path $w 'sfv_cmd.txt' } else { Join-Path $w "sfv_cmd.$i.txt" }
     Set-Content -Path $f -Value ($text -split ';' | ForEach-Object { $_.Trim() })

@@ -5,7 +5,7 @@
 # -Menu goes back to the main menu between loads.
 param([int]$Instance = 0, [string[]]$Setups, [switch]$Menu, [int]$TimeoutSeconds = 60)
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
-$log = Join-Path $w ($(if ($Instance -eq 0) { 'sfv_rollback.log' } else { "sfv_rollback.$Instance.log" }))
+$log = Join-Path $w ($(if ($Instance -eq 0) { 'SFVR\logs\sfvr.log' } else { "SFVR\logs\sfvr.$Instance.log" }))
 function Since($mark) { Get-Content $log -Tail 300 | Where-Object { $_.Length -gt 12 -and $_.Substring(0, 12) -ge $mark } }
 function Stamp($line) { [datetime]::ParseExact($line.Substring(0, 12), 'HH:mm:ss.fff', $null) }
 foreach ($s in $Setups) {

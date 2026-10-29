@@ -82,7 +82,7 @@ build\Release\sfvr.exe verify demo\outside-snapshot_p1.sfvr --mock-bug outside-s
 2. Copy `sfv_rollback.ini.example` there as `sfv_rollback.ini` (default
    `mode=probe`).
 3. Start the game, play a local Versus match, press F5 and later F9.
-4. Read `sfv_rollback.log` in the same folder.
+4. Read `SFVR\logs\sfvr.log` in the same folder.
 
 The DLL checks the exe timestamp and 16-byte signatures at every address it
 uses and does nothing on a mismatch. Delete the two DLLs to uninstall.
