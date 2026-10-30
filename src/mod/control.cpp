@@ -131,27 +131,35 @@ std::atomic<PackedInput> g_padInput[XUSER_MAX_COUNT];
 
 // The game's input manager (rva 0x3A750C0; its +8 holds two pads of 0x200
 // bytes) maps the keyboard and the pads, with the player's button config,
-// once per frame (rva 0x4DC7D0). Per pad: +0x4 down now, +0x8 pressed this
-// frame, +0xC released, +0x14 held from the frame before as well (what the
-// battle reads, rva 0x4CED60; the InputUnit's values come from it, rva
-// 0x443D20), +0x20 / +0x24 the stick. The local input is +0x4: +0x14 needs
-// the previous frame's state, which the clearing below takes away. The local
-// player plays with pad 0 (keyboard included). In a netplay match the battle
-// must see none of it, only the injected inputs: the game read local input
-// past the InputUnit and each machine saw its own player's pad
-// (netplay-testing.md, finding 7), so the manager's pads are cleared right
-// after each update.
+// once per frame (rva 0x4DC7D0). Per pad: +0x4 the pad keys down (bit k =
+// EKWKeyConfigPadKeyId k: X 0x10, Y 0x20, A 0x40, ... LB 0x100), +0x8
+// pressed this frame, +0xC released, +0x14 the value the battle reads (rva
+// 0x4CED60 via 0x4CEDF0; the InputUnit's values come from it, rva 0x443D20):
+// the keys after the player's Button Settings, each function as the default
+// layout's keys, shortcuts expanded (3P on LB: X+Y+RB). +0x20 / +0x24 the
+// stick. The local input is +0x14, as the battle reads it offline: +0x4
+// skipped the Button Settings, so shortcut keys and custom layouts (keyboard
+// players have both) came out wrong online. The local player plays with pad 0
+// (keyboard included). In a netplay match the battle must see none of it,
+// only the injected inputs: the game read local input past the InputUnit and
+// each machine saw its own player's pad (netplay-testing.md, finding 7), so
+// the manager's pads are cleared right after each update, and put back just
+// before the next one (the update derives pressed and held from them).
 constexpr uint32_t kInputManager = 0x3A750C0;
 constexpr uint32_t kInputManagerUpdate = 0x4DC7D0;
 constexpr uint8_t kInputManagerUpdateBytes[] = {0x48, 0x8B, 0xC4, 0x48, 0x89, 0x48, 0x08, 0x55,
                                                 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41};
 constexpr uint32_t kPadStride = 0x200;
 constexpr uint32_t kPadDown = 0x04;
+constexpr uint32_t kPadBattle = 0x14;
 constexpr uint32_t kPadStateBegin = 0x04, kPadStateEnd = 0x28;
 using InputUpdateFn = uint64_t (*)(void* manager, float deltaSeconds);
 InputUpdateFn g_origInputUpdate = nullptr;
 std::atomic<PackedInput> g_mappedInput{0};
 std::atomic<int> g_mappedLog{0}; // research (`mappedlog <updates>`): log the mapped value on change
+// The two pads' state as the last update left it, before the clearing (game thread only).
+uint8_t g_padsKept[2][kPadStateEnd - kPadStateBegin] = {};
+bool g_padsCleared = false;
 
 uint64_t InputUpdateDetour(void* self, float deltaSeconds)
 {
@@ -159,19 +167,30 @@ uint64_t InputUpdateDetour(void* self, float deltaSeconds)
     // During a netplay match the frame's wait goes here, before the pads are
     // read, so it adds no input lag (pacing.h).
     PaceFrame();
-    const uint64_t result = g_origInputUpdate(self, deltaSeconds);
     auto* pads = *reinterpret_cast<uint8_t* const*>(g_imageBase + kInputManager + 8);
-    if (pads && IsReadable(pads, 2 * kPadStride)) {
-        const PackedInput down = *reinterpret_cast<const uint32_t*>(pads + kPadDown);
+    const bool padsOk = pads && IsReadable(pads, 2 * kPadStride);
+    // Put back what the clearing took, so this update sees the last one's state.
+    if (padsOk && g_padsCleared) {
+        for (int pad = 0; pad < 2; pad++) std::memcpy(pads + pad * kPadStride + kPadStateBegin, g_padsKept[pad], sizeof(g_padsKept[pad]));
+    }
+    g_padsCleared = false;
+    const uint64_t result = g_origInputUpdate(self, deltaSeconds);
+    if (padsOk) {
+        const PackedInput local = *reinterpret_cast<const uint32_t*>(pads + kPadBattle);
         if (g_mappedLog > 0) {
             g_mappedLog--;
-            if (down != g_mappedInput) Log("mappedlog: pad 0 %08X (pad 1 %08X)", down, *reinterpret_cast<const uint32_t*>(pads + kPadStride + kPadDown));
+            if (local != g_mappedInput) {
+                Log("mappedlog: pad 0 %08X, keys %08X (pad 1 %08X)", local, *reinterpret_cast<const uint32_t*>(pads + kPadDown),
+                    *reinterpret_cast<const uint32_t*>(pads + kPadStride + kPadBattle));
+            }
         }
-        g_mappedInput = down;
+        g_mappedInput = local;
         if (g_isolatePads) {
             for (int pad = 0; pad < 2; pad++) {
+                std::memcpy(g_padsKept[pad], pads + pad * kPadStride + kPadStateBegin, sizeof(g_padsKept[pad]));
                 std::memset(pads + pad * kPadStride + kPadStateBegin, 0, kPadStateEnd - kPadStateBegin);
             }
+            g_padsCleared = true;
         }
     }
     return result;

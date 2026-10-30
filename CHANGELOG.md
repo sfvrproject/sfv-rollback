@@ -9,6 +9,11 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Button Settings now apply online: netplay sent the keys before the game
+  applies them, so custom layouts and shortcut buttons (3P, 3K, two-button
+  shortcuts) came out wrong. Keyboard players, who map keys to pad buttons
+  and set both, were hit hardest. Each side now sends its input the way the
+  battle reads it offline.
 - A spectator's lobby no longer shows "measuring..." under the players: it
   has no link of its own to measure.
 
