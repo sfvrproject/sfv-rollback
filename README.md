@@ -6,6 +6,8 @@ over [Weyvelength](https://github.com/HeatXD/Weyvelength) rooms and
 peer-to-peer links. The game's online code (ProudNet, Capcom servers,
 CFN) is never touched.
 
+Builds are downloadable at <https://sfvr.pages.dev>; installed copies update
+themselves from there (Settings, Updates).
 
 ## Repositories
 
@@ -13,7 +15,7 @@ This is one of three, kept side by side in the game's folder:
 
 | Repository | What it holds |
 | --- | --- |
-| `sfv-rollback` (this one) | the mod, the loader (`xinput1_3.dll`), the core library and its tests, the `sfvr` and `weyve_probe` tools, the test scripts (`scripts/`), a Windows build of the rooms server for local tests |
+| `sfv-rollback` (this one) | the mod, the loader (`xinput1_3.dll`), the core library and its tests, the `sfvr` and `weyve_probe` tools, the test scripts (`scripts/`) and a Windows build of the rooms server for local tests |
 | `sfvr-server` | the public rooms server: the Linux install (`deploy/`, systemd, Cloudflare TURN) and its guide |
 | `sfvr-site` | the project website: the download page and the update info file the updater reads |
 
