@@ -11,6 +11,7 @@
 #include "mod/flow.h"
 #include "mod/log.h"
 #include "mod/sfv_game.h"
+#include "mod/ue4.h"
 
 #include <windows.h>
 
@@ -73,7 +74,7 @@ public:
             if (BattleCreationCount() == creationsAtJump_) return false;
             jumped_ = true;
             game.ForgetBattleObjects();
-            Log("replay: battle created");
+            Log("replay: battle created (%s)", RoundEndState().c_str());
         }
         if (!ready_) return Warmup(game);
         if (stress_ > 0) return StressFrame(game);
@@ -110,8 +111,18 @@ private:
         }
         layout_ = game.LayoutVersion(); // after the copy and its new canonical order
         const int differ = Compare(game, hashes.data(), rf_.initialHashes.data(), -1);
-        Log("replay: battle objects ready after %d neutral ticks; state before frame 0 %s", warmupTicks_,
-            differ ? ("differs in " + std::to_string(differ) + " regions").c_str() : "equal");
+        Log("replay: battle objects ready after %d neutral ticks (%s); state before frame 0 %s", warmupTicks_,
+            RoundEndState().c_str(), differ ? ("differs in " + std::to_string(differ) + " regions").c_str() : "equal");
+        // Replays sent soon after the game started had the objects after 3
+        // ticks, and every one of them went on differently from frame 0 (its
+        // camera did not follow the fight); 6 or more always matched, and
+        // sessions took 6 to 18. Not understood yet; more ticks once the
+        // objects exist do not help (the battle moves on from the recording).
+        if (warmupTicks_ < 6) {
+            Log("replay: WARNING: the battle was ready after only %d ticks; such replays have differed from their "
+                "recording without a real divergence: run it again",
+                warmupTicks_);
+        }
         if (stress_ > 0) {
             NetplayConfig nc;
             nc.stressCheckDistance = static_cast<unsigned char>(stress_);
@@ -272,7 +283,39 @@ private:
                           static_cast<unsigned long long>(w[1]));
             bytes = b;
         }
-        Log("replay: watch frame %d: %s %s | %s", f, watchRegion_.c_str(), bytes.c_str(), RoundEndState().c_str());
+        std::vector<uint64_t> hashes(game.Regions().size());
+        HashRegions(game.Regions(), hashes.data());
+        Log("replay: watch frame %d: %s %s | %s | state %08x | camera %s", f, watchRegion_.c_str(), bytes.c_str(),
+            RoundEndState().c_str(), FoldChecksum(hashes.data(), hashes.size()), CameraText().c_str());
+    }
+
+    // The battle camera as last drawn: KWBattleCameraManager's CameraCache.POV
+    // (+0x368 + 0x8): location, rotation (pitch, yaw, roll), FOV. Outside the
+    // snapshot; compared between straight and stress replays by hand.
+    std::string CameraText()
+    {
+        constexpr size_t kPov = 0x370;
+        // The one drawn: the PlayerCameraManager (+0x390) of the player
+        // controller that has a local player (Player, +0x360); the other
+        // managers follow pawns. A walk over every object is slow: one try
+        // per 120 frames until found.
+        constexpr size_t kPlayer = 0x360, kCameraManager = 0x390;
+        if (!camera_ && cameraTries_++ % 120 == 0 && ue4::EnsureObjects(reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)))) {
+            ue4::ForEachObject([&](const void* object) {
+                if (camera_ || ue4::ObjectName(ue4::ClassOf(object)).find("PlayerController") == std::string::npos) return;
+                const auto* p = static_cast<const uint8_t*>(object);
+                if (!IsReadable(p + kCameraManager, 8) || !*reinterpret_cast<const void* const*>(p + kPlayer)) return;
+                const auto* manager = *reinterpret_cast<const uint8_t* const*>(p + kCameraManager);
+                if (manager && ue4::ObjectName(ue4::ClassOf(manager)).find("CameraManager") != std::string::npos) camera_ = manager;
+            });
+            if (camera_) Log("replay: camera manager %s (%p)", ue4::Describe(camera_).c_str(), static_cast<const void*>(camera_));
+        }
+        if (!camera_ || !IsReadable(camera_ + kPov, 0x1C)) return "-";
+        float v[7];
+        std::memcpy(v, camera_ + kPov, sizeof(v));
+        char b[128];
+        std::snprintf(b, sizeof(b), "%.1f %.1f %.1f r %.2f %.2f %.2f fov %.2f", v[0], v[1], v[2], v[3], v[4], v[5], v[6]);
+        return b;
     }
 
     bool Valid(SfvGame& game)
@@ -294,12 +337,68 @@ private:
             Compare(game, hashes.data(), rf_.FrameHashes(f), f);
             return;
         }
-        // A compact recording: the frame's checksum only (it needs the same
-        // regions in the same order, so a mismatch names no region).
-        if (FoldChecksum(hashes.data(), hashes.size()) == rf_.FrameChecksum(f)) return;
+        // A compact recording: the frame's checksum only (a mismatch names no
+        // region), and every 600 frames a state dump, compared word by word.
+        const bool equal = FoldChecksum(hashes.data(), hashes.size()) == rf_.FrameChecksum(f);
+        if (const StateDump* dump = rf_.FindDump(f)) CompareDump(game, *dump, f);
+        if (equal) return;
         if (firstMismatch_ < 0) firstMismatch_ = f;
         mismatchFrames_++;
         if (logged_++ < 12) Log("replay: frame %d's checksum differs from the recording (no region hashes kept)", f);
+    }
+
+    // The state against the recording's dump of the same frame: each region
+    // here pairs with the same-size dump region it differs least from
+    // (masked words left out); the differing words are logged.
+    void CompareDump(SfvGame& game, const StateDump& dump, int f)
+    {
+        struct Recorded {
+            const uint8_t* bytes;
+            size_t size;
+            bool taken;
+        };
+        std::vector<Recorded> recorded;
+        size_t at = 0;
+        for (const auto& r : rf_.regions) {
+            const size_t size = static_cast<size_t>(r.size);
+            if (at + size > dump.bytes.size()) break;
+            recorded.push_back({dump.bytes.data() + at, size, false});
+            at += size;
+        }
+        int differing = 0, shown = 0;
+        for (const StateRegion& r : game.Regions()) {
+            auto masked = [&r](size_t word) { return word / 8 < r.ignore.size() && (r.ignore[word / 8] >> (word % 8) & 1); };
+            auto diff = [&](const Recorded& d) {
+                size_t n = 0;
+                for (size_t w = 0; w + 8 <= r.size; w += 8) n += !masked(w / 8) && std::memcmp(r.ptr + w, d.bytes + w, 8) != 0;
+                return n;
+            };
+            Recorded* best = nullptr;
+            size_t bestDiff = SIZE_MAX;
+            for (auto& d : recorded) {
+                if (d.taken || d.size != r.size) continue;
+                const size_t n = diff(d);
+                if (n < bestDiff) {
+                    best = &d;
+                    bestDiff = n;
+                    if (n == 0) break;
+                }
+            }
+            if (!best) continue;
+            best->taken = true;
+            if (bestDiff == 0) continue;
+            differing++;
+            for (size_t w = 0; w + 8 <= r.size && shown < 24; w += 8) {
+                if (masked(w / 8) || std::memcmp(r.ptr + w, best->bytes + w, 8) == 0) continue;
+                uint64_t mine, theirs;
+                std::memcpy(&mine, r.ptr + w, 8);
+                std::memcpy(&theirs, best->bytes + w, 8);
+                Log("replay: frame %d dump: %s +0x%zx here %016llx, recorded %016llx", f, r.name.c_str(), w,
+                    static_cast<unsigned long long>(mine), static_cast<unsigned long long>(theirs));
+                shown++;
+            }
+        }
+        Log("replay: frame %d against the recording's dump: %d regions differ", f, differing);
     }
 
     // Region by region, by content: each region here must have an equal
@@ -383,6 +482,8 @@ private:
     int creationsAtJump_;
     int watchFrom_, watchTo_;
     std::string watchRegion_;
+    const uint8_t* camera_ = nullptr; // the battle's camera manager (CameraText)
+    int cameraTries_ = 0;
     int last_ = -1;
     bool jumped_ = false;
     bool ready_ = false;
@@ -429,10 +530,17 @@ void RequestReplay(const std::string& path, int stressDistance, int watchFrom, i
     Log("replay: %s, %d frames (confirmed through %d), build %s, %s%s", name.c_str(), rf.FrameCount(), rf.finalThrough,
         rf.gameBuild.c_str(), DescribeSetup(rf.setup).c_str(),
         stressDistance ? (", stress distance " + std::to_string(stressDistance)).c_str() : "");
+    // Both characters loaded first, as a netplay lobby has them (assets that
+    // load while the battle runs can put effects out of step, finding 23).
+    // The jump follows.
+    std::vector<PreloadPick> picks;
+    for (const PlayerSetup& p : rf.setup.players) {
+        if (p.character) picks.push_back({UnpackCode(p.character), static_cast<int>(p.costume)});
+    }
     // The recorded setup for the battle the jump starts.
     SetPendingSetup(rf.setup);
     SetFrameDriver(new ReplayDriver(std::move(rf), name, stressDistance, watchFrom, watchTo, watchRegion));
-    JumpToBattle();
+    PreloadCharacters(std::move(picks), [] { JumpToBattle(); });
 }
 
 } // namespace sfv::mod

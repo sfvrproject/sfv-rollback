@@ -1274,6 +1274,34 @@ void PreloadCharacter(const std::string& code, int costume)
     });
 }
 
+void PreloadCharacters(std::vector<PreloadPick> picks, std::function<void()> then)
+{
+    // One at a time (a preload holds the asset queue), each once the queue
+    // is free, then `then`: a jump made only then cannot start between two.
+    struct Chain {
+        static void Step(std::vector<PreloadPick> picks, size_t next, std::function<void()> then, int frames)
+        {
+            if (next == picks.size() && !g_preloading) {
+                if (then) then();
+                return;
+            }
+            if (frames >= 60 * 60) {
+                Log("flow: preloads gave up waiting for the asset queue");
+                if (then) then();
+                return;
+            }
+            // Right after the game starts its character table is not loaded
+            // yet (no version known): a preload then never ends.
+            if (next < picks.size() && LatestVersion(picks[next].code) >= 0 &&
+                StartPreload(picks[next].code, picks[next].costume, "replay")) {
+                next++;
+            }
+            RunOnGameThreadAfter(1, [=] { Step(picks, next, then, frames + 1); });
+        }
+    };
+    RunOnGameThread([picks = std::move(picks), then = std::move(then)] { Chain::Step(picks, 0, then, 0); });
+}
+
 void LogCharaVersions()
 {
     RunOnGameThread([] {

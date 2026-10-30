@@ -55,6 +55,8 @@ struct PreloadPick {
     std::string code;
     int costume = 0;
 };
+// Preloads each in turn, then runs `then` on the game thread (a replay's jump).
+void PreloadCharacters(std::vector<PreloadPick> picks, std::function<void()> then);
 void SetPreloadSource(std::function<std::vector<PreloadPick>()> source);
 // Every pick of the source is in the character cache (or would not stay
 // there), as of the last check (about twice a second).
