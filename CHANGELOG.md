@@ -7,6 +7,12 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-10-29
+
+Keyboard and custom button layouts now work online, names can use any
+script, each character remembers its loadout, and offline modes no longer
+take the last online session's stage.
+
 ### Changed
 
 - The character list is in alphabetical order.
