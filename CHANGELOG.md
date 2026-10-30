@@ -7,6 +7,11 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-29
+
+No more false desync warnings during intros and round calls, and players
+whose network blocks the server's usual port can now connect through port 443.
+
 ### Fixed
 
 - False desyncs in intros, round calls and win poses: the camera's and the
