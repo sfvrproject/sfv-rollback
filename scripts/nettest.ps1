@@ -38,8 +38,13 @@ for ($r = 1; $r -le $Rounds; $r++) {
 
     $random = if ($Costumes) { 'host random costumes' } else { 'host random' }
     Cmd $hostI "delay $Delay; mash $($rng.Next(1, 100000)); $random; netsim $($net[$hostI].lat) $($net[$hostI].jit) $($net[$hostI].loss)"
-    Start-Sleep -Milliseconds 800
-    $code = Grab (LinesSince $hostI $mark) 'hosting, code (\S+)'
+    # The code as the host logs it (never an earlier one), up to 30 s.
+    $code = $null
+    $codeBy = (Get-Date).AddSeconds(30)
+    while (-not $code -and (Get-Date) -lt $codeBy) {
+        Start-Sleep -Milliseconds 300
+        $code = Grab (LinesSince $hostI $mark) 'hosting, code (\S+)'
+    }
     if (-not $code) { "  no code from the host"; break }
     Cmd $joinI "delay $Delay; mash $($rng.Next(1, 100000)); join $code; netsim $($net[$joinI].lat) $($net[$joinI].jit) $($net[$joinI].loss)"
 

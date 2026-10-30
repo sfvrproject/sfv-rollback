@@ -30,13 +30,9 @@ function Remote([string]$op, [hashtable]$fields = @{}) {
   $answer
 }
 
-# New log lines of a remote instance since the last call (all on the first).
-# -FromNow: skip what is there (the next call returns only newer lines).
-function RemoteLog([int]$instance = 0, [switch]$FromNow) {
-  if ($FromNow) {
-    $script:remoteLogLines[$instance] = [int](Remote 'log' @{ instance = $instance; from = -1 }).total
-    return
-  }
+$script:remotePending = @{} # lines RemoteCmd -Wait read, kept for the next RemoteLog
+
+function RemoteFetch([int]$instance) {
   $out = @()
   do {
     $from = if ($script:remoteLogLines.ContainsKey($instance)) { $script:remoteLogLines[$instance] } else { 0 }
@@ -45,6 +41,66 @@ function RemoteLog([int]$instance = 0, [switch]$FromNow) {
     $out += @($a.lines)
   } while (@($a.lines).Count -ge 3000)
   $out
+}
+
+# New log lines of a remote instance since the last call (all on the first).
+# -FromNow: skip what is there (the next call returns only newer lines).
+function RemoteLog([int]$instance = 0, [switch]$FromNow) {
+  if ($FromNow) {
+    $script:remoteLogLines[$instance] = [int](Remote 'log' @{ instance = $instance; from = -1 }).total
+    $script:remotePending[$instance] = @()
+    return
+  }
+  $out = @($script:remotePending[$instance]) + @(RemoteFetch $instance)
+  $script:remotePending[$instance] = @()
+  $out | Where-Object { $null -ne $_ }
+}
+
+# Mod commands on a remote instance; throws when its cmd.ps1 failed (not
+# taken, no game running). -Wait: until they have run (an echo marker in its
+# log; the lines read meanwhile still come from the next RemoteLog).
+function RemoteCmd([int]$instance, [string]$commands, [switch]$Wait, [int]$Seconds = 30) {
+  $marker = ''
+  if ($Wait) {
+    if (-not $script:remoteLogLines.ContainsKey($instance)) { RemoteLog $instance -FromNow }
+    $marker = 'done-' + [guid]::NewGuid().ToString('N').Substring(0, 10)
+    $commands = "$commands; echo $marker"
+  }
+  $a = Remote 'cmd' @{ instance = $instance; commands = $commands }
+  if ($a.output -match 'did not take|has not taken|no game is running|did not finish') {
+    throw "second PC, instance ${instance}: '$commands' failed: $($a.output.Trim())"
+  }
+  if (-not $Wait) { return }
+  $deadline = (Get-Date).AddSeconds($Seconds)
+  if (-not $script:remotePending.ContainsKey($instance)) { $script:remotePending[$instance] = @() }
+  while ((Get-Date) -lt $deadline) {
+    $new = @(RemoteFetch $instance)
+    $script:remotePending[$instance] += $new
+    if ($new -match [regex]::Escape("cmd: echo $marker")) { return }
+    Start-Sleep -Milliseconds 300
+  }
+  throw "second PC, instance ${instance}: '$commands' did not finish within $Seconds s"
+}
+
+# Starts the remote games (its up.ps1: detached, restarted on a crash at
+# startup) and throws when they did not reach the main menu.
+function RemoteStart([int]$count = 1) {
+  $out = (Remote 'start' @{ count = $count }).output
+  if ($out -match 'not all started|exited while starting.*retries used|need multi_instance|cannot start') {
+    throw "second PC: starting the game failed: $($out.Trim())"
+  }
+  $out.Trim()
+}
+
+# This build's mod and test scripts to the second PC (its up.ps1 copies its
+# build folder's DLL into the game folder when it starts the games).
+function RemoteDeploy {
+  $dll = Join-Path $PSScriptRoot '..\build\Release\sfv_rollback.dll'
+  RemotePut $dll 'sfv_rollback.dll' | Out-Null
+  RemotePut $dll 'sfv-rollback\build\Release\sfv_rollback.dll' | Out-Null
+  foreach ($s in 'cmd.ps1', 'up.ps1', 'lib.ps1', 'logtail.ps1', 'win.ps1', 'weyve-server.ps1') {
+    RemotePut (Join-Path $PSScriptRoot $s) "sfv-rollback\scripts\$s" | Out-Null
+  }
 }
 
 function RemotePut([string]$local, [string]$remotePath) {

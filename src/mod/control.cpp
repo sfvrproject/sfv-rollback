@@ -29,6 +29,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -501,6 +503,13 @@ void RunNetCommand(const std::string& line)
         ss >> ms >> buttons;
         Step parsed;
         if (ParseButtons(buttons, parsed)) PressUiButtons(parsed.buttons, ms);
+    }
+    else if (cmd == "echo") {
+        // echo <text>: logs it once every step before it has run (scripts
+        // wait for it: cmd.ps1 -Wait).
+        std::string rest;
+        std::getline(ss, rest);
+        Log("cmd: echo%s", rest.c_str());
     }
     else if (cmd == "uipads") {
         // uipads <0|1>: testing, 1 lets the game see the local pads (with
@@ -1098,7 +1107,7 @@ bool Parse(const std::string& line, Step& step)
         return !ss.fail();
     }
     if (cmd == "host" || cmd == "join" || cmd == "spectate" || cmd == "server" || cmd == "packlogs" || cmd == "update" || cmd == "name" || cmd == "delay" || cmd == "transport" || cmd == "ready" || cmd == "choose" || cmd == "leave" || cmd == "netsim" || cmd == "mash" || cmd == "dumps" || cmd == "recordings" || cmd == "pick" ||
-        cmd == "stage" || cmd == "netstatus" || cmd == "battle" || cmd == "setstage" || cmd == "park" || cmd == "peek" || cmd == "battlenow" || cmd == "findptr" || cmd == "findbytes" || cmd == "keyconfigs" || cmd == "enuminfo" || cmd == "owner" || cmd == "layout" || cmd == "keys" || cmd == "input2" || cmd == "members" || cmd == "worldctx" || cmd == "poke" || cmd == "stages" || cmd == "nextstage" || cmd == "recdiff" || cmd == "outsidetest" || cmd == "tasklist" || cmd == "phases" || cmd == "regions" || cmd == "costumes" || cmd == "variants" || cmd == "presets" || cmd == "freeplay" || cmd == "relayonly" || cmd == "vsync" || cmd == "uniqueparam" || cmd == "datatable" || cmd == "replay" || cmd == "classes" || cmd == "classinfo" || cmd == "named" || cmd == "scene" || cmd == "relocate" || cmd == "menu" || cmd == "overlay" || cmd == "charas" || cmd == "find" || cmd == "watchregion" || cmd == "packages" || cmd == "preload" || cmd == "charcache" || cmd == "drawlog" || cmd == "inputlog" || cmd == "mappedlog" || cmd == "versions" || cmd == "uipads" || cmd == "uistart") {
+        cmd == "stage" || cmd == "netstatus" || cmd == "battle" || cmd == "setstage" || cmd == "park" || cmd == "peek" || cmd == "battlenow" || cmd == "findptr" || cmd == "findbytes" || cmd == "keyconfigs" || cmd == "enuminfo" || cmd == "owner" || cmd == "layout" || cmd == "keys" || cmd == "input2" || cmd == "members" || cmd == "worldctx" || cmd == "poke" || cmd == "stages" || cmd == "nextstage" || cmd == "recdiff" || cmd == "outsidetest" || cmd == "tasklist" || cmd == "phases" || cmd == "regions" || cmd == "costumes" || cmd == "variants" || cmd == "presets" || cmd == "freeplay" || cmd == "relayonly" || cmd == "vsync" || cmd == "uniqueparam" || cmd == "datatable" || cmd == "replay" || cmd == "classes" || cmd == "classinfo" || cmd == "named" || cmd == "scene" || cmd == "relocate" || cmd == "menu" || cmd == "overlay" || cmd == "charas" || cmd == "find" || cmd == "watchregion" || cmd == "packages" || cmd == "preload" || cmd == "charcache" || cmd == "drawlog" || cmd == "inputlog" || cmd == "mappedlog" || cmd == "versions" || cmd == "uipads" || cmd == "uistart" || cmd == "echo") {
         step.kind = Step::Net;
         step.line = line;
         return true;
@@ -1244,8 +1253,35 @@ void Run(const Step& s)
     }
 }
 
+// Steps read from the command file, run in order on their own thread: the
+// file is taken at once even while earlier steps (pad presses, waits, key
+// sequences) still run. Taken only when it was free before, a file written
+// meanwhile used to wait, and a script's next file replaced it (its steps
+// were lost).
+std::mutex g_stepMutex;
+std::condition_variable g_stepReady;
+std::deque<Step> g_stepQueue;
+
+void StepRunner()
+{
+    ThreadGuard running;
+    for (;;) {
+        Step s;
+        {
+            std::unique_lock lock(g_stepMutex);
+            g_stepReady.wait_for(lock, std::chrono::milliseconds(200), [] { return !g_stepQueue.empty() || Stopping(); });
+            if (Stopping()) return;
+            if (g_stepQueue.empty()) continue;
+            s = g_stepQueue.front();
+            g_stepQueue.pop_front();
+        }
+        Run(s);
+    }
+}
+
 void CommandLoop(std::wstring path)
 {
+    std::thread(StepRunner).detach();
     ThreadGuard running;
     uint64_t lastPolls[XUSER_MAX_COUNT] = {};
     ULONGLONG lastReport = GetTickCount64();
@@ -1282,11 +1318,15 @@ void CommandLoop(std::wstring path)
             }
             in.close();
             DeleteFileW(path.c_str());
-            Log("cmd: running %zu steps", steps.size());
-            for (const Step& s : steps) {
-                if (Stopping()) return;
-                Run(s);
+            size_t ahead = 0;
+            {
+                std::lock_guard lock(g_stepMutex);
+                ahead = g_stepQueue.size();
+                for (const Step& s : steps) g_stepQueue.push_back(s);
             }
+            g_stepReady.notify_one();
+            if (ahead) Log("cmd: running %zu steps (after %zu still queued)", steps.size(), ahead);
+            else Log("cmd: running %zu steps", steps.size());
         }
         // The game sets its own title for a while after starting; keep ours.
         if (!g_activePending && GetTickCount64() - lastTitle > 1000) {

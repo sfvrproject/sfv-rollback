@@ -9,6 +9,7 @@
 param([string]$Stage = 'CHN', [string]$NextStage = 'NZL', [string]$NextPick = '', [int[]]$Seeds = @(11, 22),
       [int]$StartSeconds = 45)
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
+. (Join-Path $PSScriptRoot 'lib.ps1')
 function LogOf($i) { Join-Path $w ($(if ($i -eq 0) { 'SFVR\logs\sfvr.log' } else { "SFVR\logs\sfvr.$i.log" })) }
 $n = @{}; foreach ($i in 0, 1) { $n[$i] = @(Get-Content (LogOf $i)).Count }
 function Since($i) { Get-Content (LogOf $i) | Select-Object -Skip $n[$i] }
@@ -19,9 +20,9 @@ function WaitCount($i, $pattern, $count, $seconds) {
   $false
 }
 & (Join-Path $PSScriptRoot 'weyve-server.ps1') | Out-Null
-& (Join-Path $PSScriptRoot 'cmd.ps1') -Instance 0 -Commands "server 127.0.0.1:5555; mash $($Seeds[0]); pick RYU 0 1 0 1 1; stage $Stage; host manual" -WaitMs 1500 | Out-Null
-$code = (Since 0 | Select-String 'hosting, code (\S+)' | Select-Object -Last 1).Matches.Groups[1].Value
-& (Join-Path $PSScriptRoot 'cmd.ps1') -Instance 1 -Commands "server 127.0.0.1:5555; mash $($Seeds[1]); pick KEN 0 1 0 1 1; join $code manual" -WaitMs 500 | Out-Null
+Reset-Instances 0, 1 -Server 127.0.0.1:5555
+$code = Start-Host 0 "mash $($Seeds[0]); pick RYU 0 1 0 1 1; stage $Stage" -Command 'host manual'
+Send-Cmd 1 "mash $($Seeds[1]); pick KEN 0 1 0 1 1; join $code manual"
 # Manual: ready is said by hand, as players do (auto-ready would start the
 # next match from the lobby at once).
 if (-not (WaitCount 0 'joined from' 1 30)) { exit 1 }

@@ -14,6 +14,7 @@ param([Parameter(Mandatory)][string]$Agent, [Parameter(Mandatory)][string]$Token
       [switch]$Deploy, [switch]$NoMash, [int]$EndHoldSeconds = 0, [int]$TimeoutSeconds = 1200, [string]$Out = '', [int]$Delay = 0)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'remote.ps1') -Agent $Agent -Token $Token
+. (Join-Path $PSScriptRoot 'lib.ps1')
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
 $sfvr = Join-Path $PSScriptRoot '..\build\Release\sfvr.exe'
 $log0 = Join-Path $w 'SFVR\logs\sfvr.log'
@@ -30,15 +31,14 @@ Say "second PC: $($ping.host), $($ping.games) game instance(s) running"
 # Both games use this server: the second PC through this PC's address.
 (Remote 'ini' @{ file = 'sfv_rollback.ini'; section = 'weyve'; key = 'server'; value = $serverAddress }).output | Out-Null
 if ($Deploy) {
-  # Both: scripts\up.ps1 there copies its build folder's DLL into the game folder.
-  Say (RemotePut (Join-Path $PSScriptRoot '..\build\Release\sfv_rollback.dll') 'sfv_rollback.dll')
-  Say (RemotePut (Join-Path $PSScriptRoot '..\build\Release\sfv_rollback.dll') 'sfv-rollback\build\Release\sfv_rollback.dll')
+  RemoteDeploy
+  Say 'deployed this build and the test scripts to the second PC'
   if ($ping.games) { Remote 'stop' | Out-Null; Start-Sleep 3 }
   $ping = @{ games = 0 }
 }
 if (-not $ping.games) {
   Say 'starting the game on the second PC'
-  Say (Remote 'start' @{ count = 1 }).output.Trim()
+  Say (RemoteStart 1)
   Start-Sleep 15 # the menu ignores input for a while after its map loads
 }
 
@@ -49,13 +49,15 @@ RemoteLog 0 -FromNow
 $remote = New-Object System.Collections.ArrayList
 
 $mash = if ($NoMash) { '' } else { 'mash 11; ' }
-& (Join-Path $PSScriptRoot 'cmd.ps1') -Instance 0 -Commands "server 127.0.0.1:$($serverAddress.Split(':')[1]); delay $Delay; ${mash}pick $($Picks[0]) 0 1 0 1 1; stage $Stage; host" -WaitMs 2000 | Out-Null
-$code = (Since | Select-String 'hosting, code (\S+)' | Select-Object -Last 1).Matches.Groups[1].Value
-if (-not $code) { Say 'no code: hosting failed (see the log)'; exit 1 }
+Assert-GamesRunning 1
+# Nothing left over from an earlier run on either side.
+Reset-Instances 0
+RemoteCmd 0 'leave; mash 0; netsim 0 0 0' -Wait
+$code = Start-Host 0 "server 127.0.0.1:$($serverAddress.Split(':')[1]); delay $Delay; ${mash}pick $($Picks[0]) 0 1 0 1 1; stage $Stage" 
 Say "code $code"
 $mash = if ($NoMash) { '' } else { 'mash 22; ' }
 # Its instance 0 is the session's second player.
-Remote 'cmd' @{ instance = 0; commands = "server $serverAddress; name Player 2; delay $Delay; ${mash}pick $($Picks[1]) 0 1 0 1 1; join $code" } | Out-Null
+RemoteCmd 0 "server $serverAddress; name Player 2; delay $Delay; ${mash}pick $($Picks[1]) 0 1 0 1 1; join $code" 
 
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 $decided = 0
@@ -76,14 +78,14 @@ while ((Get-Date) -lt $deadline) {
     break
   }
   $c = "choose $($Choices[$decided - 1])"
-  & (Join-Path $PSScriptRoot 'cmd.ps1') -Instance 0 -Commands $c -WaitMs 0 | Out-Null
-  Remote 'cmd' @{ instance = 0; commands = $c } | Out-Null
+  Send-Cmd 0 $c
+  RemoteCmd 0 $c
 }
 Start-Sleep 2
 # Mashing and simulated network conditions stay set in the game until a reload: a
 # session played by hand afterwards would get them. Off again.
-& (Join-Path $PSScriptRoot 'cmd.ps1') -Instance 0 -Commands 'leave; mash 0; netsim 0 0 0' -WaitMs 300 | Out-Null
-Remote 'cmd' @{ instance = 0; commands = 'leave; mash 0; netsim 0 0 0' } | Out-Null
+Reset-Instances 0
+RemoteCmd 0 'leave; mash 0; netsim 0 0 0' -Wait
 Start-Sleep 4
 foreach ($l in RemoteLog 0) { [void]$remote.Add($l) }
 $here = Since
@@ -100,9 +102,11 @@ $remote | Where-Object { $_ -match $pattern } | ForEach-Object { Say $_.Substrin
 # Keyed by the match id in the file name: the side that leaves logs its last
 # match as "left at frame N; recording ...". Paths may hold spaces (Program Files).
 $mine = @{}
-foreach ($l in $here) { if ($l -match 'recording (.+-([0-9a-f]{8})-p\d-match\.sfvr)') { $mine[$Matches[2]] = $Matches[1] } }
+# (The names: <date>_<time>_<P1>_vs_<P2>_<match id>_<p1|p2>[_desync].sfvr.)
+$named = 'recording (.+_([0-9a-f]{8})_p[12](?:_desync)?\.sfvr)'
+foreach ($l in $here) { if ($l -match $named) { $mine[$Matches[2]] = $Matches[1] } }
 foreach ($l in $remote) {
-  if ($l -notmatch 'recording (.+-([0-9a-f]{8})-p\d-match\.sfvr)') { continue }
+  if ($l -notmatch $named) { continue }
   $id = $Matches[2]
   $rel = $Matches[1] -replace '^.*\\Binaries\\Win64\\', ''
   $local = Join-Path $outDir (Split-Path $rel -Leaf)

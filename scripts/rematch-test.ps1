@@ -5,9 +5,11 @@
 # too (its stage must be the chosen one), then both leave at the second
 # decision. Prints the timings from the logs: decision -> held, choice ->
 # rematch running.
-param([int]$HoldSeconds = 40, [string]$Stage = 'CHN', [int[]]$Seeds = @(11, 22), [string]$Shots = (Join-Path $env:TEMP 'sfv-rematch-test'))
-$w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
-function LogOf($i) { Join-Path $w ($(if ($i -eq 0) { 'SFVR\logs\sfvr.log' } else { "SFVR\logs\sfvr.$i.log" })) }
+param([int]$HoldSeconds = 40, [string]$Stage = 'CHN', [int[]]$Seeds = @(11, 22), [string]$Shots = (Join-Path $env:TEMP 'sfv-rematch-test'),
+      [string]$Server = '127.0.0.1:5555')
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'lib.ps1')
+Assert-GamesRunning 2
 $n = @{}; foreach ($i in 0, 1) { $n[$i] = @(Get-Content (LogOf $i)).Count }
 function Since($i) { Get-Content (LogOf $i) | Select-Object -Skip $n[$i] }
 function WaitCount($i, $pattern, $count, $seconds) {
@@ -18,10 +20,11 @@ function WaitCount($i, $pattern, $count, $seconds) {
 }
 function Shot($name) { foreach ($i in 0, 1) { & (Join-Path $PSScriptRoot 'win.ps1') -Action shot -Instance $i -Out (Join-Path $Shots "$name-$i.png") | Out-Null } }
 New-Item -ItemType Directory -Force -Path $Shots | Out-Null
-& (Join-Path $PSScriptRoot 'weyve-server.ps1') | Out-Null
-& (Join-Path $PSScriptRoot 'cmd.ps1') -Instance 0 -Commands "mash $($Seeds[0]); dumps 600 24; pick RYU 0 1 0 1 1; stage $Stage; host" -WaitMs 1500 | Out-Null
-$code = (Since 0 | Select-String 'hosting, code (\S+)' | Select-Object -Last 1).Matches.Groups[1].Value
-& (Join-Path $PSScriptRoot 'cmd.ps1') -Instance 1 -Commands "mash $($Seeds[1]); dumps 600 24; pick KEN 0 1 0 1 1; join $code" -WaitMs 500 | Out-Null
+if ($Server -like '127.0.0.1:*') { Start-RoomsServer ([int]($Server -split ':')[1]) }
+# Both on the same server (a copy's saved one may differ), nothing left over.
+Reset-Instances 0, 1 -Server $Server
+$code = Start-Host 0 "mash $($Seeds[0]); dumps 600 24; pick RYU 0 1 0 1 1; stage $Stage"
+Start-Join 1 $code "mash $($Seeds[1]); dumps 600 24; pick KEN 0 1 0 1 1" | Out-Null
 if (-not (WaitCount 0 'match running' 1 120)) { exit 1 }
 Start-Sleep 20
 Shot 'match1'
@@ -30,13 +33,13 @@ Start-Sleep 3
 Shot 'decided'
 Start-Sleep $HoldSeconds
 Shot 'held'
-foreach ($i in 0, 1) { & (Join-Path $PSScriptRoot 'cmd.ps1') -Instance $i -Commands 'choose rematch' -WaitMs 0 | Out-Null }
+foreach ($i in 0, 1) { Send-Cmd $i 'choose rematch' }
 WaitCount 0 'match running' 2 120 | Out-Null
 Start-Sleep 8
 Shot 'rematch'
 WaitCount 0 'the match is decided' 2 400 | Out-Null
 Start-Sleep 3
-foreach ($i in 0, 1) { & (Join-Path $PSScriptRoot 'cmd.ps1') -Instance $i -Commands 'leave' -WaitMs 300 | Out-Null }
+Reset-Instances 0, 1
 Start-Sleep 3
 $pattern = 'netplay: (match [0-9a-f]{8}:|session started as|the match is decided|both chose|jumping into|battle created|battle objects ready|match running|session over)|results screen held|round flow event (7|11|12|13|14)|battle setup at battle start|desync detected'
 foreach ($i in 0, 1) {

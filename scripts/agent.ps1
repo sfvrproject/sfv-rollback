@@ -40,7 +40,9 @@ function Handle($q) {
       return @{ host = $env:COMPUTERNAME; games = @(Get-Process StreetFighterV -ErrorAction SilentlyContinue).Count; game = $game }
     }
     'start' {
-      $out = & (Join-Path $PSScriptRoot 'up.ps1') -Count ([int]$q.count) 2>&1 | Out-String
+      # Without a count, one instance (0 started none).
+      $count = if ($q.count) { [int]$q.count } else { 1 }
+      $out = & (Join-Path $PSScriptRoot 'up.ps1') -Count $count 2>&1 | Out-String
       return @{ output = $out }
     }
     'stop' {
@@ -98,8 +100,12 @@ function Handle($q) {
       return @{ output = "set [$($q.section)] $($q.key)=$($q.value) in $full" }
     }
     'shot' {
+      # A fresh file each time: with no game window the last one was sent
+      # again, an old picture passed for the current screen.
       $png = Join-Path $env:TEMP "sfv-agent-shot.png"
+      Remove-Item $png -ErrorAction SilentlyContinue
       & (Join-Path $PSScriptRoot 'win.ps1') -Action shot -Instance ([int]$q.instance) -Out $png | Out-Null
+      if (-not (Test-Path $png)) { throw "no screenshot: no game window for instance $([int]$q.instance)" }
       return @{ data = [Convert]::ToBase64String([IO.File]::ReadAllBytes($png)) }
     }
     'server' {

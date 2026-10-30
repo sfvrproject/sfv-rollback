@@ -8,12 +8,13 @@ param([Parameter(Mandatory)][string]$Agent, [Parameter(Mandatory)][string]$Token
       [switch]$Deploy)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'remote.ps1') -Agent $Agent -Token $Token
+. (Join-Path $PSScriptRoot 'lib.ps1')
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
 $sfvr = Join-Path $PSScriptRoot '..\build\Release\sfvr.exe'
 $log0 = Join-Path $w 'SFVR\logs\sfvr.log'
 $serverAddress = if ($Server -match ':') { $Server } else { "${Server}:5555" }
-function Local($c, $ms = 500) { & (Join-Path $PSScriptRoot 'cmd.ps1') -Instance 0 -Commands $c -WaitMs $ms | Out-Null }
-function RemoteCmd($c) { Remote 'cmd' @{ instance = 0; commands = $c } | Out-Null }
+function Local($c) { Send-Cmd 0 $c -Wait }
+function Remote0($c) { RemoteCmd 0 $c -Wait }
 function LocalSince($n) { Get-Content $log0 -Encoding utf8 | Select-Object -Skip $n }
 
 # The layouts. Pad tables: up, down, left, right, X, Y, A, B, LB, RB, LT, RT, L3, R3, start, select.
@@ -32,51 +33,44 @@ function Expected($side) {
 }
 
 "== setting up the keyboard layouts (from the next start)"
-if ($Deploy) {
-  # Both: its up.ps1 copies its build folder's DLL into the game folder.
-  $dll = Join-Path $PSScriptRoot '..\build\Release\sfv_rollback.dll'
-  RemotePut $dll 'sfv_rollback.dll' | Out-Null
-  RemotePut $dll 'sfv-rollback\build\Release\sfv_rollback.dll' | Out-Null
-}
-& (Join-Path $PSScriptRoot 'up.ps1') -Count 1 -Restart | Out-Null
-$i = 4; foreach ($k in $keys.local) { Local "input2 KeyboardKeys_$i $k" 200; $i++ }
-if ((Remote 'ping').games -eq 0) { Remote 'start' @{ count = 1 } | Out-Null }
-$i = 4; foreach ($k in $keys.remote) { RemoteCmd "input2 KeyboardKeys_$i $k"; $i++ }
+if ($Deploy) { RemoteDeploy }
+Start-Games 1 -Restart | Out-Null
+$i = 4; foreach ($k in $keys.local) { Local "input2 KeyboardKeys_$i $k"; $i++ }
+if ((Remote 'ping').games -eq 0) { RemoteStart 1 | Out-Null }
+$i = 4; foreach ($k in $keys.remote) { Remote0 "input2 KeyboardKeys_$i $k"; $i++ }
 Start-Sleep 2
 "== restarting both games with them"
 Remote 'stop' | Out-Null
 Start-Sleep 3
-Remote 'start' @{ count = 1 } | Out-Null
-& (Join-Path $PSScriptRoot 'up.ps1') -Count 1 -Restart | Out-Null
+RemoteStart 1 | Out-Null
+Start-Games 1 -Restart | Out-Null
 
 "== the match"
-& (Join-Path $PSScriptRoot 'weyve-server.ps1') | Out-Null
+Start-RoomsServer
 $n = @(Get-Content $log0).Count
-Local "server 127.0.0.1:$($serverAddress.Split(':')[1]); delay 2; mash 0; pick RYU 0 1 0 1 1; stage CHN; host" 2000
-$code = LocalSince $n | Select-String 'hosting, code (\S+)' | Select-Object -Last 1 | ForEach-Object { $_.Matches[0].Groups[1].Value }
-if (-not $code) { 'no code: hosting failed'; exit 1 }
-RemoteCmd "server $serverAddress; name Player 2; delay 2; mash 0; pick KEN 0 1 0 1 1; join $code"
+$code = Start-Host 0 "server 127.0.0.1:$($serverAddress.Split(':')[1]); delay 2; mash 0; pick RYU 0 1 0 1 1; stage CHN" 
+Remote0 "server $serverAddress; name Player 2; delay 2; mash 0; pick KEN 0 1 0 1 1; join $code"
 $end = (Get-Date).AddSeconds(150)
 while ((Get-Date) -lt $end -and -not (LocalSince $n | Select-String -Quiet 'round flow event 6')) { Start-Sleep 1 }
 Start-Sleep 2
-Local "layout $($table.local)" 500
-RemoteCmd "layout $($table.remote)"
+Local "layout $($table.local)"
+Remote0 "layout $($table.remote)"
 Start-Sleep 1
 "P1 presses (this PC)"
-foreach ($b in $padOrder) { Local "pad 0 $b 200 300" 700 }
+foreach ($b in $padOrder) { Local "pad 0 $b 200 300" }
 & (Join-Path $PSScriptRoot 'win.ps1') -Action keys -Instance 0 -Keys ($keys.local -join ' ') -HoldMs 200 -GapMs 400 | Out-Null
 Start-Sleep 1
 "P2 presses (second PC)"
-foreach ($b in $padOrder) { RemoteCmd "pad 0 $b 200 300"; Start-Sleep -Milliseconds 700 }
-RemoteCmd "keys $($keys.remote -join ' ') 200"
+foreach ($b in $padOrder) { Remote0 "pad 0 $b 200 300"; Start-Sleep -Milliseconds 700 }
+Remote0 "keys $($keys.remote -join ' ') 200"
 Start-Sleep 6
-Local 'leave' 500
-RemoteCmd 'leave'
+Local 'leave'
+Remote0 'leave'
 Start-Sleep 4
 
 "== the recordings"
 $matchId = (LocalSince $n | Select-String 'netplay: match ([0-9a-f]{8})[0-9a-f]{8};' | Select-Object -Last 1).Matches.Groups[1].Value
-if (-not $matchId) { 'no match started (did the second PC join?)'; Local 'input2 restore' 500; RemoteCmd 'input2 restore'; exit 1 }
+if (-not $matchId) { 'no match started (did the second PC join?)'; Local 'input2 restore'; Remote0 'input2 restore'; exit 1 }
 $mine = Get-ChildItem (Join-Path $w 'SFVR\matches') -Filter "*_${matchId}_p1.sfvr" | Select-Object -Last 1
 $out = Join-Path $env:TEMP "layout-test-$matchId"
 New-Item -ItemType Directory -Force $out | Out-Null
@@ -108,8 +102,8 @@ foreach ($file in @($mine.FullName, $theirs)) {
 LocalSince $n | Select-String 'desync|left at frame' | ForEach-Object { $_.Line.Substring(13, [Math]::Min(150, $_.Line.Length - 13)) }
 
 "== restoring Input2.ini on both (from the next start)"
-Local 'input2 restore' 500
-RemoteCmd 'input2 restore'
+Local 'input2 restore'
+Remote0 'input2 restore'
 Start-Sleep 2
 Remote 'stop' | Out-Null
 if ($ok) { 'PASS: both recordings show each player''s presses as their own layout makes them' } else { 'FAIL' }

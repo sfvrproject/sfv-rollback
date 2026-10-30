@@ -8,14 +8,14 @@ param([ValidateSet('none', 'host', 'join', 'both')][string]$Press = 'both', [int
       [string]$Stage = 'CHN', [int]$TimeoutSeconds = 600, [int]$PressCount = 25,
       [switch]$UiAtMatchEnd, [switch]$UiStartAtMatchEnd, [string]$UiButton = 'start')
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
+. (Join-Path $PSScriptRoot 'lib.ps1')
 $logs = @((Join-Path $w 'SFVR\logs\sfvr.log'), (Join-Path $w 'SFVR\logs\sfvr.1.log'))
 function Since($log, $mark) { Get-Content $log -Tail 8000 | Where-Object { $_.Length -gt 12 -and $_.Substring(0, 12) -ge $mark } }
 function Stamp($line) { [datetime]::ParseExact($line.Substring(0, 12), 'HH:mm:ss.fff', $null) }
 $ended = 'netplay: (match over|the other player left)'
 $mark = (Get-Date).ToString('HH:mm:ss.fff')
-& "$PSScriptRoot\cmd.ps1" -Instance 0 -Commands "mash 11; stage $Stage; host" -WaitMs 800 | Out-Null
-$code = (Select-String -Path $logs[0] -Pattern 'hosting, code (\S+)' | Select-Object -Last 1).Matches.Groups[1].Value
-& "$PSScriptRoot\cmd.ps1" -Instance 1 -Commands "mash 22; join $code" -WaitMs 100 | Out-Null
+$code = Start-Host 0 "mash 11; stage $Stage"
+Start-Join 1 $code 'mash 22' -NoWait | Out-Null
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
 $pressed = 0
 $presses = (1..$PressCount | ForEach-Object { 'pad 0 start 80 250' }) -join ';'

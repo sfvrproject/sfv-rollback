@@ -6,6 +6,7 @@
 # matched, and the recordings to compare (`sfvr peers`, `sfvr changes`).
 param([string]$Opponent = 'KEN', [int]$Seconds = 10, [string[]]$Only = @(), [string]$Out = '')
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
+. (Join-Path $PSScriptRoot 'lib.ps1')
 $logs = @((Join-Path $w 'SFVR\logs\sfvr.log'), (Join-Path $w 'SFVR\logs\sfvr.1.log'))
 $sfvr = Join-Path $PSScriptRoot '..\build\Release\sfvr.exe'
 function Since($log, $mark) { Get-Content $log -Tail 600 | Where-Object { $_.Length -gt 12 -and $_.Substring(0, 12) -ge $mark } }
@@ -42,9 +43,8 @@ foreach ($c in $roster) {
   $local = WaitFor $logs[0] $m 'round flow event 3' 90
   # 2. The netplay match.
   $m = Mark
-  & "$PSScriptRoot\cmd.ps1" -Instance 0 -Commands "mash 11; pick $($c.Code) 0 1 0 1 1; stage CHN; host" -WaitMs 800
-  $code = (Since $logs[0] $m | Select-String 'hosting, code (\S+)' | Select-Object -Last 1).Matches.Groups[1].Value
-  & "$PSScriptRoot\cmd.ps1" -Instance 1 -Commands "mash 22; pick $Opponent 0 1 0 1 1; join $code" -WaitMs 100
+  $code = Start-Host 0 "mash 11; pick $($c.Code) 0 1 0 1 1; stage CHN"
+  Start-Join 1 $code "mash 22; pick $Opponent 0 1 0 1 1" -NoWait | Out-Null
   $frozen = WaitFor $logs[0] $m 'frozen state checksums' 120
   $started = WaitFor $logs[1] $m 'session started as' 30
   if ($started) { Start-Sleep $Seconds }

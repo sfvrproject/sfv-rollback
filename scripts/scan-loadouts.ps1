@@ -10,6 +10,7 @@
 param([string]$Noise = (Join-Path $env:TEMP 'sfv_noise.scan.txt'), [int]$Seconds = 75, [string[]]$Only = @(),
       [string]$Out = '', [int]$Start = 0)
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
+. (Join-Path $PSScriptRoot 'lib.ps1')
 $logs = @((Join-Path $w 'SFVR\logs\sfvr.log'), (Join-Path $w 'SFVR\logs\sfvr.1.log'))
 $sfvr = Join-Path $PSScriptRoot '..\build\Release\sfvr.exe'
 # Marks are line counts per log (timestamps repeat across days in one log).
@@ -46,9 +47,8 @@ for ($k = $Start; $k -lt $n; $k++) {
   $b = $roster[($k + 1) % $n]
   $before = @(Get-Content $Noise | Where-Object { $_ -match '^\d' }).Count
   $m = Mark
-  & "$PSScriptRoot\cmd.ps1" -Instance 0 -Commands "mash 11; dumps 120 60; pick $a 0 1 0 1 1; stage CHN; host" -WaitMs 800 | Out-Null
-  $code = (Since $logs[0] $m | Select-String 'hosting, code (\S+)' | Select-Object -Last 1).Matches.Groups[1].Value
-  & "$PSScriptRoot\cmd.ps1" -Instance 1 -Commands "mash 22; dumps 120 60; pick $b 0 1 0 2 2; join $code" -WaitMs 100 | Out-Null
+  $code = Start-Host 0 "mash 11; dumps 120 60; pick $a 0 1 0 1 1; stage CHN"
+  Start-Join 1 $code "mash 22; dumps 120 60; pick $b 0 1 0 2 2" -NoWait | Out-Null
   $started = WaitFor $logs[1] $m 'session started as' 150
   if ($started) { Start-Sleep $Seconds }
   foreach ($i in 0, 1) { & "$PSScriptRoot\cmd.ps1" -Instance $i -Commands 'leave' -WaitMs 300 | Out-Null }

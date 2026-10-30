@@ -5,11 +5,11 @@
 param([string]$P1 = 'ZGF', [string]$P2 = 'KRN')
 $s = $PSScriptRoot
 $w = (Join-Path $PSScriptRoot '..\..\StreetFighterV\Binaries\Win64')
+. (Join-Path $PSScriptRoot 'lib.ps1')
 $log = "$w\SFVR\logs\sfvr.log"
 $n0 = @(Get-Content $log).Count
-& "$s\cmd.ps1" -Instance 0 -Commands "pick $P1 0 1 0 1 1; host" -WaitMs 2500 | Out-Null
-$code = (Get-Content $log | Select-Object -Skip $n0 | Select-String 'hosting, code (\S+)' | Select-Object -Last 1).Matches.Groups[1].Value
-& "$s\cmd.ps1" -Instance 1 -Commands "pick $P2 0 1 0 1 1; join $code" -WaitMs 500 | Out-Null
+$code = Start-Host 0 "pick $P1 0 1 0 1 1"
+Start-Join 1 $code "pick $P2 0 1 0 1 1" -NoWait | Out-Null
 $deadline = (Get-Date).AddSeconds(120)
 while ((Get-Date) -lt $deadline) {
   Start-Sleep 1
