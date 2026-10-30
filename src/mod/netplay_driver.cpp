@@ -2,6 +2,7 @@
 
 #include "core/match_code.h"
 #include "core/netplay.h"
+#include "core/file_open.h"
 #include "core/replay_file.h"
 #include "core/spectate.h"
 #include "core/update_info.h"
@@ -2018,9 +2019,9 @@ private:
         }
         name += "_" + Hex64(liveMatch_).substr(0, 8) + (role_ == Role::Spectator ? "_spec" : host_ ? "_p1" : "_p2");
         if (std::strstr(kind, "desync")) name += "_desync";
-        std::string dir;
-        for (wchar_t c : reportDir_) dir += c < 128 ? static_cast<char>(c) : '_';
-        const std::string path = dir + "\\" + name + ".sfvr";
+        // UTF-8, every character kept: a game folder outside ASCII (Chinese,
+        // Cyrillic) used to become a path that does not exist.
+        const std::string path = Utf8Path(reportDir_) + "\\" + name + ".sfvr";
         std::string error;
         const ReplayDetail detail = options_.fullRecordings ? ReplayDetail::Full : ReplayDetail::Compact;
         if (!SaveReplay(rf, path, &error, detail)) Log("netplay: cannot save %s: %s", path.c_str(), error.c_str());
@@ -2043,7 +2044,7 @@ private:
             path = linkPath_;
         }
         const std::string logPath = recording.substr(0, recording.rfind('.')) + ".log";
-        FILE* f = std::fopen(logPath.c_str(), "w");
+        FILE* f = OpenFile(logPath, "w");
         const std::vector<std::string> lines = LogCaptureTake();
         if (!f) {
             Log("netplay: cannot write %s", logPath.c_str());

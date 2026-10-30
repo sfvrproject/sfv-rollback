@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <mutex>
 
 namespace sfv::mod {
@@ -23,7 +24,10 @@ BOOL CALLBACK Apply(HWND w, LPARAM)
 
     std::string title = "StreetFighterV [sfv " + std::to_string(g_instance) + "]";
     if (!g_text.empty()) title += " " + g_text;
-    std::wstring wide(title.begin(), title.end());
+    // From UTF-8 (names in any script), not byte by byte.
+    std::wstring wide(title.size(), L'\0');
+    wide.resize(static_cast<size_t>(std::max(0, MultiByteToWideChar(CP_UTF8, 0, title.data(), static_cast<int>(title.size()),
+                                                                     wide.data(), static_cast<int>(wide.size())))));
     // InternalGetWindowText: GetWindowText would send WM_GETTEXT to the game
     // thread, which may be waiting for g_mutex (SetStatus): a deadlock.
     wchar_t current[256] = {};

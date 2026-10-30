@@ -853,10 +853,15 @@ std::string FStringText(const uint8_t* fstring)
     if (!IsReadable(fstring, 16)) return "";
     std::memcpy(&data, fstring, 8);
     std::memcpy(&num, fstring + 8, 4);
-    std::string out;
-    for (int i = 0; data && i < num && i < 200 && IsReadable(data + i, 2) && data[i]; i++) {
-        out += data[i] < 128 ? static_cast<char>(data[i]) : '?';
-    }
+    std::wstring wide;
+    for (int i = 0; data && i < num && i < 200 && IsReadable(data + i, 2) && data[i]; i++) wide += data[i];
+    // As UTF-8: the game's text is in its language (anything not ASCII used
+    // to become '?', so a Chinese game's names were all question marks).
+    if (wide.empty()) return "";
+    std::string out(wide.size() * 3, '\0');
+    const int len = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), out.data(),
+                                        static_cast<int>(out.size()), nullptr, nullptr);
+    out.resize(static_cast<size_t>(std::max(len, 0)));
     return out;
 }
 

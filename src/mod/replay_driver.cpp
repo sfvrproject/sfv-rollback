@@ -1,6 +1,7 @@
 #include "mod/replay_driver.h"
 
 #include "core/netplay.h"
+#include "core/file_open.h"
 #include "core/replay_file.h"
 #include "core/state.h"
 #include "core/transport.h"
@@ -40,17 +41,16 @@ public:
 // reports folder earlier builds wrote to (next to the exe).
 std::string FindRecording(const std::string& name)
 {
-    std::string matches;
-    for (wchar_t c : MatchesDir()) matches += c < 128 ? static_cast<char>(c) : '_';
-    const std::string inMatches = matches + "\\" + name;
-    if (GetFileAttributesA(inMatches.c_str()) != INVALID_FILE_ATTRIBUTES) return inMatches;
+    const std::string inMatches = Utf8Path(MatchesDir()) + "\\" + name;
+    if (FILE* f = OpenFile(inMatches, "rb")) {
+        std::fclose(f);
+        return inMatches;
+    }
     wchar_t exe[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
     std::wstring dir(exe);
     dir = dir.substr(0, dir.find_last_of(L"\\/"));
-    std::string out;
-    for (wchar_t c : dir) out += c < 128 ? static_cast<char>(c) : '_';
-    return out + "\\reports\\" + name;
+    return Utf8Path(dir) + "\\reports\\" + name;
 }
 
 class ReplayDriver : public IFrameDriver {

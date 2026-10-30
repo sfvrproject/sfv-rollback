@@ -1,6 +1,7 @@
 #include "core/replay_file.h"
 
 #include "core/compress.h"
+#include "core/file_open.h"
 #include "core/state.h"
 
 #include <algorithm>
@@ -579,15 +580,14 @@ bool SaveReplay(const ReplayFile& replay, const std::string& path, std::string* 
     const std::vector<uint8_t> bytes = SerializeReplay(replay, detail);
     // Write to a temp name and rename so a crash never leaves half a report.
     const std::string tmp = path + ".tmp";
-    FILE* f = std::fopen(tmp.c_str(), "wb");
+    FILE* f = OpenFile(tmp, "wb");
     if (!f) {
         if (error) *error = "cannot open " + tmp;
         return false;
     }
     const bool written = std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
     std::fclose(f);
-    std::remove(path.c_str());
-    if (!written || std::rename(tmp.c_str(), path.c_str()) != 0) {
+    if (!written || !RenameFile(tmp, path)) {
         if (error) *error = "cannot write " + path;
         return false;
     }
@@ -596,7 +596,7 @@ bool SaveReplay(const ReplayFile& replay, const std::string& path, std::string* 
 
 bool LoadReplay(const std::string& path, ReplayFile* out, std::string* error)
 {
-    FILE* f = std::fopen(path.c_str(), "rb");
+    FILE* f = OpenFile(path, "rb");
     if (!f) {
         if (error) *error = "cannot open " + path;
         return false;

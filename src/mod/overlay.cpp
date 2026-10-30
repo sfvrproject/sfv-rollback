@@ -310,9 +310,35 @@ void BuildFonts(float scale)
         {"YuGothM.ttc"},  // Japanese
         {"msgothic.ttc"}, // ... older Windows
         {"malgun.ttf"},   // Korean
-        {"msyh.ttc"},     // Chinese
+        {"msyh.ttc"},     // Chinese (Simplified)
+        {"msjh.ttc"},     // Chinese (Traditional)
         {"seguisym.ttf"}, // symbols
     };
+    // Tried in an order that follows Windows' display language: the Han
+    // characters Chinese, Japanese and Korean share take the shapes of the
+    // player's own (a Chinese system drew them in Japanese ones, and
+    // characters only Simplified Chinese has came from the last font).
+    static const std::vector<Fallback*> order = [] {
+        std::vector<Fallback*> out;
+        for (Fallback& fb : fallbacks) out.push_back(&fb);
+        const LANGID lang = GetUserDefaultUILanguage();
+        std::vector<std::string> first;
+        if (PRIMARYLANGID(lang) == LANG_CHINESE) {
+            const WORD sub = SUBLANGID(lang);
+            const bool traditional = sub == SUBLANG_CHINESE_TRADITIONAL || sub == SUBLANG_CHINESE_HONGKONG || sub == SUBLANG_CHINESE_MACAU;
+            first = traditional ? std::vector<std::string>{"msjh.ttc", "msyh.ttc"} : std::vector<std::string>{"msyh.ttc", "msjh.ttc"};
+        }
+        else if (PRIMARYLANGID(lang) == LANG_KOREAN) {
+            first = {"malgun.ttf"};
+        }
+        // segoeui.ttf stays ahead: it has no Han characters, only the scripts above.
+        auto rank = [&](const Fallback* fb) {
+            const auto it = std::find(first.begin(), first.end(), fb->file);
+            return std::string(fb->file) == "segoeui.ttf" ? -1 : it == first.end() ? 100 : static_cast<int>(it - first.begin());
+        };
+        std::stable_sort(out.begin(), out.end(), [&](const Fallback* a, const Fallback* b) { return rank(a) < rank(b); });
+        return out;
+    }();
     static ImVector<ImWchar> extraRanges;
     extraRanges.clear();
     if (!g_extraChars.empty()) {
@@ -329,7 +355,8 @@ void BuildFonts(float scale)
     };
     auto mergeExtras = [&](float px) {
         if (extraRanges.empty()) return;
-        for (Fallback& fb : fallbacks) {
+        for (Fallback* each : order) {
+            Fallback& fb = *each;
             // Only fonts for a script some name uses are read.
             if (!std::any_of(g_extraChars.begin(), g_extraChars.end(), [&](ImWchar c) { return inBlock(c, fb.file); })) continue;
             if (!fb.tried) {
@@ -721,7 +748,20 @@ void LoadTables()
     {
         std::lock_guard lock(g_tablesMutex);
         if (g_readTables) {
-            if (g_readTables->loaded) g_tables = std::move(*g_readTables);
+            if (g_readTables->loaded) {
+                g_tables = std::move(*g_readTables);
+                // The game's own names, in its language: a Chinese, Japanese
+                // or Korean game's characters need glyphs Latin-1 lacks.
+                auto note = [](const std::vector<std::string>& texts) {
+                    for (const std::string& t : texts) NoteText(t);
+                };
+                note(g_tables.labels);
+                note(g_tables.stageLabels);
+                for (const auto& v : g_tables.costumeNames) note(v);
+                for (const auto& v : g_tables.settingLabels) note(v);
+                for (const auto& v : g_tables.vskills) note(v);
+                for (const auto& v : g_tables.vtriggers) note(v);
+            }
             g_readTables.reset();
             g_readingTables = false; // not loaded yet (game still starting): read again later
             return;

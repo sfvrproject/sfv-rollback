@@ -142,6 +142,15 @@ void RotateLog(const std::wstring& dir, const std::wstring& stem)
     PruneOldest(dir, stem + L"_*.log", kKeptRunLogs);
 }
 
+std::string Utf8Path(const std::wstring& path)
+{
+    if (path.empty()) return {};
+    const int n = WideCharToMultiByte(CP_UTF8, 0, path.data(), static_cast<int>(path.size()), nullptr, 0, nullptr, nullptr);
+    std::string out(static_cast<size_t>(n > 0 ? n : 0), '\0');
+    if (n > 0) WideCharToMultiByte(CP_UTF8, 0, path.data(), static_cast<int>(path.size()), out.data(), n, nullptr, nullptr);
+    return out;
+}
+
 std::string FileSafe(const std::string& text, size_t maxLen, const std::string& empty)
 {
     std::string out;

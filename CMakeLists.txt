@@ -111,6 +111,7 @@ add_library(sfvcore STATIC
   src/core/json.cpp
   src/core/update_info.cpp
   src/core/replay_file.cpp
+  src/core/file_open.cpp
   src/core/recorder.cpp
   src/core/verifier.cpp
   src/core/replay_diff.cpp

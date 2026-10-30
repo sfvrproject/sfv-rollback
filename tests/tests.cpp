@@ -324,6 +324,24 @@ void TestCleanMatch()
     CHECK(LoadReplay(path, &loaded, &error));
     CHECK(loaded.hashes == r.recording[0].hashes && loaded.inputs == r.recording[0].inputs);
     std::remove(path.c_str());
+
+    // And in a folder named outside ASCII (a game or user folder in Chinese):
+    // the path goes as UTF-8, opened through the wide API.
+    wchar_t temp[MAX_PATH] = {};
+    GetTempPathW(MAX_PATH, temp);
+    const std::wstring dir = std::wstring(temp) + L"sfvr-测试-Ж";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    std::string dirUtf8(dir.size() * 3, '\0');
+    dirUtf8.resize(static_cast<size_t>(WideCharToMultiByte(CP_UTF8, 0, dir.data(), static_cast<int>(dir.size()), dirUtf8.data(),
+                                                           static_cast<int>(dirUtf8.size()), nullptr, nullptr)));
+    const std::string wide = dirUtf8 + "\\test_clean_p1.sfvr";
+    CHECK(SaveReplay(r.recording[0], wide, &error));
+    ReplayFile loadedWide;
+    CHECK(LoadReplay(wide, &loadedWide, &error));
+    CHECK(loadedWide.inputs == r.recording[0].inputs);
+    CHECK(SaveReplay(r.recording[0], wide, &error)); // over the existing file
+    DeleteFileW((dir + L"\\test_clean_p1.sfvr").c_str());
+    RemoveDirectoryW(dir.c_str());
 }
 
 void TestSetupMismatch()

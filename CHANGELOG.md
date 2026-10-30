@@ -9,12 +9,19 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Non-Latin systems and games: the game's own text (character, costume,
+  stage, V-Skill and V-Trigger names) came out as question marks when the game
+  runs in Chinese, Japanese or Korean; the panel now shows it, in the fonts of
+  Windows' display language first (Chinese systems no longer get Japanese
+  glyph shapes). Recordings and match logs are saved when the game folder's
+  path has characters outside ASCII (they were not), and the window title
+  shows names in any script.
 - The panel opened during the title screen read the game's character lists
   before they were complete, and kept them: characters showed as codes
   ("Z34"), costumes as "costume 0" and V-Skills without names (seen by a
   spectator, also in the post-match windows; a player's own lists could
-  miss characters too). The lists are
-  now read once the game is past its start.
+  miss characters too). The lists are now read once the game is past its
+  start.
 - A spectator could open the game's own Results Menu over a watched
   match's results screen (any press, even the one opening the panel): the
   game now gets no input there, as the players' vote already did for them.

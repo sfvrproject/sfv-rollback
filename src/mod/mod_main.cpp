@@ -141,7 +141,7 @@ DWORD WINAPI ModMain(LPVOID self)
         if (config.mode == Mode::Playback) {
             ReplayFile rf;
             std::string error;
-            if (LoadReplay(Narrow(config.playbackFile), &rf, &error)) {
+            if (LoadReplay(Utf8Path(config.playbackFile), &rf, &error)) {
                 Log("playback: %s, %d frames, build %s (this build %s)", Narrow(config.playbackFile).c_str(),
                     rf.FrameCount(), rf.gameBuild.c_str(), game.BuildId().c_str());
             }

@@ -37,6 +37,9 @@ void RotateLog(const std::wstring& dir, const std::wstring& stem);
 // runs of anything else become one '-', at most `maxLen` characters; `empty`
 // when nothing is left.
 std::string FileSafe(const std::string& text, size_t maxLen, const std::string& empty);
+// A path as UTF-8 (what core/file_open.h opens), every character kept: a game
+// or user folder outside ASCII stays a real path.
+std::string Utf8Path(const std::wstring& path);
 
 // Writes a zip (stored, not compressed: the recordings already are) of the
 // files, each {path on disk, name in the zip}.
