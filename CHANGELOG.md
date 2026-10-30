@@ -7,6 +7,14 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- The character list is in alphabetical order.
+- Each character keeps its own loadout (costume, color, variant, V-Skill,
+  V-Trigger): picking a character brings back what you last played with it,
+  also after restarting the game. A character not played before starts from
+  its first costume and color, V-Skill I and V-Trigger I.
+
 ### Fixed
 
 - Player names in any script: names are read from the ini files as UTF-8,

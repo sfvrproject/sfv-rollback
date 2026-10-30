@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cwchar>
 #include <string>
+#include <vector>
 
 namespace sfv::mod {
 
@@ -162,6 +163,16 @@ void SaveNetplayChoices(const std::wstring& path, const NetplayOptions& n, const
     Write(path, L"vskill", std::to_string(n.pick.vskill + 1));
     Write(path, L"vtrigger", std::to_string(n.pick.vtrigger + 1));
     Write(path, L"variant", std::to_string(n.pick.variation));
+    // The character's loadout, for when it is picked again (ReadLoadouts):
+    // costume, color, comment, V-Skill, V-Trigger, variant as stored above.
+    if (n.hasPick) {
+        const std::string code = UnpackCode(n.pick.character);
+        const std::string loadout = std::to_string(n.pick.costume) + " " + std::to_string(n.pick.color + 1) + " " +
+                                    std::to_string(n.pick.comment) + " " + std::to_string(n.pick.vskill + 1) + " " +
+                                    std::to_string(n.pick.vtrigger + 1) + " " + std::to_string(n.pick.variation);
+        WritePrivateProfileStringW(L"loadouts", std::wstring(code.begin(), code.end()).c_str(),
+                                   std::wstring(loadout.begin(), loadout.end()).c_str(), path.c_str());
+    }
     Write(path, L"stage", stage);
     Write(path, L"input_delay", std::to_string(n.inputDelay));
     // ASCII as it is; anything else as hex in name_utf8 (see ReadNetplayChoices).
@@ -180,6 +191,36 @@ void SaveNetplayChoices(const std::wstring& path, const NetplayOptions& n, const
     std::string recent;
     for (const std::string& s : n.recentServers) recent += (recent.empty() ? "" : ";") + s;
     Write(path, L"recent_servers", recent);
+}
+
+std::map<std::string, PlayerSetup> ReadLoadouts(const std::wstring& path)
+{
+    std::map<std::string, PlayerSetup> loadouts;
+    std::vector<wchar_t> buf(32768);
+    const DWORD n = GetPrivateProfileSectionW(L"loadouts", buf.data(), static_cast<DWORD>(buf.size()), path.c_str());
+    // "KEN=3 5 0 2 1 0\0CMY=...\0\0"
+    for (size_t at = 0; at < n && buf[at];) {
+        const std::wstring entry(buf.data() + at);
+        at += entry.size() + 1;
+        const size_t eq = entry.find(L'=');
+        if (eq == std::wstring::npos || eq == 0) continue;
+        int costume = 0, color = 1, comment = 0, vskill = 1, vtrigger = 1, variant = 0;
+        if (std::swscanf(entry.c_str() + eq + 1, L"%d %d %d %d %d %d", &costume, &color, &comment, &vskill, &vtrigger,
+                         &variant) != 6) {
+            continue;
+        }
+        const std::string code = Ascii(entry.substr(0, eq));
+        PlayerSetup p;
+        p.character = PackCode(code.c_str());
+        p.costume = static_cast<uint16_t>(costume);
+        p.color = static_cast<uint8_t>(color - 1);
+        p.comment = static_cast<uint8_t>(comment);
+        p.vskill = static_cast<uint8_t>(vskill - 1);
+        p.vtrigger = static_cast<uint8_t>(vtrigger - 1);
+        p.variation = static_cast<uint8_t>(variant);
+        loadouts[code] = p;
+    }
+    return loadouts;
 }
 
 Config LoadConfig(const std::wstring& path, const std::wstring& dllDir, const std::wstring& panelPath)

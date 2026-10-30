@@ -28,6 +28,7 @@
 #include <atomic>
 #include <cstring>
 #include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -658,6 +659,29 @@ Tables ReadTables()
         t.vskills.push_back(SkillNames(CharaCode(i), false));
         t.vtriggers.push_back(SkillNames(CharaCode(i), true));
     }
+    // Alphabetical by name (the game's table is in release order).
+    std::vector<size_t> order(t.charas.size());
+    for (size_t k = 0; k < order.size(); k++) order[k] = k;
+    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        return std::lexicographical_compare(t.labels[a].begin(), t.labels[a].end(), t.labels[b].begin(), t.labels[b].end(),
+                                            [](char x, char y) {
+                                                return std::tolower(static_cast<unsigned char>(x)) <
+                                                       std::tolower(static_cast<unsigned char>(y));
+                                            });
+    });
+    auto reorder = [&order](auto& v) {
+        auto sorted = v;
+        for (size_t k = 0; k < order.size(); k++) sorted[k] = std::move(v[order[k]]);
+        v = std::move(sorted);
+    };
+    reorder(t.charas);
+    reorder(t.charaIndex);
+    reorder(t.labels);
+    reorder(t.costumes);
+    reorder(t.costumeNames);
+    reorder(t.colors);
+    reorder(t.vskills);
+    reorder(t.vtriggers);
     for (int i = 0; i < StageCount() && !Stopping(); i++) {
         if (!IsMenuStage(i)) continue;
         t.stages.push_back(StageCode(i));
@@ -731,10 +755,14 @@ struct Choices {
     bool showFps = false;
 };
 Choices g_choices;
+// Each character's loadout as last saved with it, and as left in the panel
+// this run (by code): picking a character again brings its loadout back.
+std::map<std::string, PlayerSetup> g_loadouts;
 
 void InitChoices()
 {
     if (g_choices.initialised || !g_tables.loaded) return;
+    if (!g_panelPath.empty()) g_loadouts = ReadLoadouts(g_panelPath);
     const NetplayOptions o = NetOptions();
     // A session always plays a pick (there is no character select to fall
     // back on): the saved one, else the first character.
@@ -1002,12 +1030,34 @@ bool PickValid(Choices& c)
     return true;
 }
 
+// Another character: the one left keeps its loadout for later, the new one
+// gets its own as last saved or left (else the first costume and color, V-Skill
+// and V-Trigger I).
+void SwitchCharacter(Choices& c, int chara)
+{
+    if (chara == c.chara) return;
+    PlayerSetup& left = g_loadouts[g_tables.charas[c.chara]];
+    left.costume = static_cast<uint16_t>(c.costume);
+    left.color = static_cast<uint8_t>(c.color);
+    left.vskill = static_cast<uint8_t>(c.vskill - 1);
+    left.vtrigger = static_cast<uint8_t>(c.vtrigger - 1);
+    left.variation = static_cast<uint8_t>(c.variant);
+    c.chara = chara;
+    const auto it = g_loadouts.find(g_tables.charas[chara]);
+    const PlayerSetup saved = it != g_loadouts.end() ? it->second : PlayerSetup{};
+    c.costume = saved.costume;
+    c.color = saved.color;
+    c.vskill = saved.vskill + 1;
+    c.vtrigger = saved.vtrigger + 1;
+    c.variant = saved.variation;
+}
+
 void PickCharacter(Choices& c, const char* label)
 {
     if (ImGui::BeginCombo(label, g_tables.labels[c.chara].c_str())) {
         for (int i = 0; i < static_cast<int>(g_tables.charas.size()); i++) {
             ImGui::PushID(i);
-            if (ImGui::Selectable(g_tables.labels[i].c_str(), i == c.chara)) c.chara = i;
+            if (ImGui::Selectable(g_tables.labels[i].c_str(), i == c.chara)) SwitchCharacter(c, i);
             ImGui::PopID();
         }
         ImGui::EndCombo();
