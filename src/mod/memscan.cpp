@@ -112,6 +112,37 @@ void FindPointer(uint64_t value)
     Log("findptr: %d hits", hits);
 }
 
+void FindBytes(const std::vector<uint8_t>& bytes)
+{
+    if (bytes.empty()) return;
+    std::vector<uint8_t> buffer(1u << 20);
+    uintptr_t addr = 0x10000;
+    MEMORY_BASIC_INFORMATION mbi;
+    int hits = 0;
+    while (hits < 400 && VirtualQuery(reinterpret_cast<void*>(addr), &mbi, sizeof(mbi))) {
+        const auto base = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+        const uintptr_t end = base + mbi.RegionSize;
+        if (mbi.State == MEM_COMMIT && (mbi.Protect & (PAGE_READWRITE | PAGE_WRITECOPY))) {
+            // Chunks overlap by the pattern's length so a hit across a boundary is found.
+            const size_t step = buffer.size() - bytes.size();
+            for (uintptr_t chunk = base; chunk < end && hits < 400; chunk += step) {
+                const size_t n = static_cast<size_t>(std::min<uintptr_t>(buffer.size(), end - chunk));
+                if (n < bytes.size() || !ReadSafe(chunk, buffer.data(), n)) continue;
+                for (size_t i = 0; i + bytes.size() <= n && hits < 400; i++) {
+                    if (buffer[i] == bytes[0] && std::memcmp(&buffer[i], bytes.data(), bytes.size()) == 0) {
+                        Log("findbytes: at %p", reinterpret_cast<void*>(chunk + i));
+                        hits++;
+                    }
+                }
+                if (n < buffer.size()) break;
+            }
+        }
+        if (end <= addr) break;
+        addr = end;
+    }
+    Log("findbytes: %d hits", hits);
+}
+
 void ScanDelta(int32_t delta)
 {
     if (g_values.size() != g_hits.size()) {

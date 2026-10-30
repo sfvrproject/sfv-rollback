@@ -1317,8 +1317,9 @@ void DrawLobby(const NetView& v)
                 ImGui::SameLine();
             }
             ImGui::AlignTextToFramePadding();
+            // The ping between the players; a spectator has no link to measure.
             if (v.linkPingMs) ImGui::TextColored(PingColor(v.linkPingMs), "%u ms", v.linkPingMs);
-            else ImGui::TextColored(kDim, "measuring...");
+            else if (!v.spectator) ImGui::TextColored(kDim, "measuring...");
         }
         // How the two are linked: peer to peer, or through a relay.
         if (v.linkPath != NetView::Path::Unknown) {

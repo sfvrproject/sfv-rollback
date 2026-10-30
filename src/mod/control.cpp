@@ -673,6 +673,65 @@ void RunNetCommand(const std::string& line)
                         WriteProcessMemory(GetCurrentProcess(), reinterpret_cast<void*>(address), &value, bytes, &done);
         Log("poke %llx = %llx (%d bytes): %s", address, value, bytes, ok ? "ok" : "failed");
     }
+    else if (cmd == "findbytes") {
+        // findbytes <hex bytes, e.g. 0a0b0c>: where they are in writable memory (research).
+        std::string hex;
+        ss >> hex;
+        std::vector<uint8_t> bytes;
+        for (size_t i = 0; i + 1 < hex.size(); i += 2) bytes.push_back(static_cast<uint8_t>(std::stoi(hex.substr(i, 2), nullptr, 16)));
+        FindBytes(bytes);
+    }
+    else if (cmd == "owner") {
+        // owner <hex address>: the UObject whose memory holds it, and the offset (research).
+        unsigned long long address = 0;
+        ss >> std::hex >> address;
+        if (!ue4::EnsureObjects(g_imageBase)) return;
+        int found = 0;
+        ue4::ForEachObject([&](const void* object) {
+            const auto start = reinterpret_cast<uintptr_t>(object);
+            const size_t size = ue4::ObjectSize(object);
+            if (address < start || address >= start + size || size == 0) return;
+            Log("owner %llx: %s +0x%llx (size 0x%zx)", address, ue4::Describe(object).c_str(),
+                static_cast<unsigned long long>(address - start), size);
+            found++;
+        });
+        if (!found) Log("owner %llx: no UObject holds it", address);
+    }
+    else if (cmd == "enuminfo") {
+        // enuminfo <enum name>: its names and values (UEnum::Names at +0x40,
+        // FNames in value order (this engine version); research).
+        std::string name;
+        ss >> name;
+        if (!ue4::EnsureObjects(g_imageBase)) return;
+        const auto* e = static_cast<const uint8_t*>(ue4::FindObject(name, "Enum"));
+        if (!e || !IsReadable(e, 0x50)) {
+            Log("enuminfo: no enum %s", name.c_str());
+            return;
+        }
+        const auto* pairs = *reinterpret_cast<const uint8_t* const*>(e + 0x40);
+        const int32_t count = *reinterpret_cast<const int32_t*>(e + 0x48);
+        if (!pairs || count <= 0 || count > 512 || !IsReadable(pairs, static_cast<size_t>(count) * 8)) {
+            Log("enuminfo %s: unexpected layout (%p, %d)", name.c_str(), pairs, count);
+            return;
+        }
+        for (int32_t i = 0; i < count; i++) {
+            const int32_t index = *reinterpret_cast<const int32_t*>(pairs + i * 8);
+            Log("enuminfo %s: %d %s", name.c_str(), i, ue4::NameText(index).c_str());
+        }
+    }
+    else if (cmd == "keyconfigs") {
+        // keyconfigs: the button settings (KWKeyConfigs, KWUserProfileDetails
+        // +0xB0: 15 bytes Data, then TypeData) of every user profile (research).
+        if (!ue4::EnsureObjects(g_imageBase)) return;
+        ue4::ForEachObject([](const void* object) {
+            if (ue4::ObjectName(ue4::ClassOf(object)) != "KWUserProfileDetails") return;
+            const auto* p = static_cast<const uint8_t*>(object);
+            if (!IsReadable(p, 0xC0)) return;
+            char hex[64] = {};
+            for (int i = 0; i < 16; i++) std::snprintf(hex + i * 2, 3, "%02x", p[0xB0 + i]);
+            Log("keyconfigs: %s (%p) main %d: %s", ue4::ObjectName(object).c_str(), object, p[0x28] & 1, hex);
+        });
+    }
     else if (cmd == "findptr") {
         unsigned long long v = 0;
         ss >> std::hex >> v;
@@ -922,7 +981,7 @@ bool Parse(const std::string& line, Step& step)
         return !ss.fail();
     }
     if (cmd == "host" || cmd == "join" || cmd == "spectate" || cmd == "server" || cmd == "packlogs" || cmd == "update" || cmd == "name" || cmd == "delay" || cmd == "transport" || cmd == "ready" || cmd == "choose" || cmd == "leave" || cmd == "netsim" || cmd == "mash" || cmd == "dumps" || cmd == "recordings" || cmd == "pick" ||
-        cmd == "stage" || cmd == "netstatus" || cmd == "battle" || cmd == "setstage" || cmd == "park" || cmd == "peek" || cmd == "battlenow" || cmd == "findptr" || cmd == "members" || cmd == "worldctx" || cmd == "poke" || cmd == "stages" || cmd == "nextstage" || cmd == "recdiff" || cmd == "outsidetest" || cmd == "tasklist" || cmd == "phases" || cmd == "regions" || cmd == "costumes" || cmd == "variants" || cmd == "presets" || cmd == "freeplay" || cmd == "relayonly" || cmd == "vsync" || cmd == "uniqueparam" || cmd == "datatable" || cmd == "replay" || cmd == "classes" || cmd == "classinfo" || cmd == "named" || cmd == "scene" || cmd == "relocate" || cmd == "menu" || cmd == "overlay" || cmd == "charas" || cmd == "find" || cmd == "watchregion" || cmd == "packages" || cmd == "preload" || cmd == "charcache" || cmd == "drawlog" || cmd == "inputlog" || cmd == "mappedlog" || cmd == "versions" || cmd == "uipads" || cmd == "uistart") {
+        cmd == "stage" || cmd == "netstatus" || cmd == "battle" || cmd == "setstage" || cmd == "park" || cmd == "peek" || cmd == "battlenow" || cmd == "findptr" || cmd == "findbytes" || cmd == "keyconfigs" || cmd == "enuminfo" || cmd == "owner" || cmd == "members" || cmd == "worldctx" || cmd == "poke" || cmd == "stages" || cmd == "nextstage" || cmd == "recdiff" || cmd == "outsidetest" || cmd == "tasklist" || cmd == "phases" || cmd == "regions" || cmd == "costumes" || cmd == "variants" || cmd == "presets" || cmd == "freeplay" || cmd == "relayonly" || cmd == "vsync" || cmd == "uniqueparam" || cmd == "datatable" || cmd == "replay" || cmd == "classes" || cmd == "classinfo" || cmd == "named" || cmd == "scene" || cmd == "relocate" || cmd == "menu" || cmd == "overlay" || cmd == "charas" || cmd == "find" || cmd == "watchregion" || cmd == "packages" || cmd == "preload" || cmd == "charcache" || cmd == "drawlog" || cmd == "inputlog" || cmd == "mappedlog" || cmd == "versions" || cmd == "uipads" || cmd == "uistart") {
         step.kind = Step::Net;
         step.line = line;
         return true;

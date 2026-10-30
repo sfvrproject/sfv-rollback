@@ -12,6 +12,7 @@
 // freed meanwhile cannot fault.
 
 #include <cstdint>
+#include <vector>
 
 namespace sfv::mod {
 
@@ -21,6 +22,8 @@ void ScanShow();
 void ScanSmall();
 // Logs up to 32 addresses holding the 8-byte value (who points at an object).
 void FindPointer(uint64_t value);
+// Every place (any alignment) holding `bytes` in writable memory, up to 400 (research).
+void FindBytes(const std::vector<uint8_t>& bytes);
 void ScanDelta(int32_t delta);
 // Keeps hits where (hit - fieldOffset) looks like a player record (battle_setup.h).
 void ScanRecordFilter(uint32_t fieldOffset);
