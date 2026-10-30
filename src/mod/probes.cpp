@@ -107,10 +107,12 @@ void HandleHotkeys()
                           cmd == GameCommand::LearnNoise);
     }
     if (cmd == GameCommand::Unwatch) DisarmWatches();
-    const bool save = Pressed(VK_F5) || cmd == GameCommand::Save;
-    const bool load = Pressed(VK_F9) || cmd == GameCommand::Load;
-    const bool ringSave = Pressed(VK_F6) || cmd == GameCommand::RingSave;
-    const bool ringLoad = Pressed(VK_F10) || cmd == GameCommand::RingLoad;
+    // The keys only when asked for ([probe] debug_hotkeys); scripts' commands always.
+    const bool keys = g.config.savestateHotkeys;
+    const bool save = (keys && Pressed(VK_F5)) || cmd == GameCommand::Save;
+    const bool load = (keys && Pressed(VK_F9)) || cmd == GameCommand::Load;
+    const bool ringSave = (keys && Pressed(VK_F6)) || cmd == GameCommand::RingSave;
+    const bool ringLoad = (keys && Pressed(VK_F10)) || cmd == GameCommand::RingLoad;
     if (cmd == GameCommand::Layout) g.game->LogLayout();
 
     if (save) {
@@ -179,7 +181,7 @@ uint64_t PreDetour(uint8_t* unit, void* a2, void* a3, void* a4)
         LogBattleSetup("at battle start");
     }
 
-    if (g.config.mode == Mode::Probe && g.config.savestateHotkeys) HandleHotkeys();
+    if (g.config.mode == Mode::Probe) HandleHotkeys();
     g.syncTest.OnTick(*g.game);
     if (g.stackTicks > 0 && --g.stackTicks >= 0) LogStack("RollbackUnit::Pre", g.image.base);
 

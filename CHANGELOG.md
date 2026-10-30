@@ -17,6 +17,14 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Offline modes after a session: until the game was restarted, every stage
+  the game asked for (Arcade, Versus, Training, even the menus') was swapped
+  for the session's last stage, and after the Debug tab's Battle now offline
+  battles also got its Ryu and Ken. The mod's stage and characters now apply
+  only to the battle it jumps into.
+- The debugging hotkeys F5, F6, F9 and F10 are off: they loaded saved
+  states in any battle, offline ones too. `[probe] debug_hotkeys=1` turns
+  them on; the old `savestate_hotkeys` setting is no longer read.
 - Player names in any script: names are read from the ini files as UTF-8,
   sent whole up to 96 bytes (cut between characters, never inside one), and
   the panel draws them with Windows' fonts for other scripts (accented Latin,

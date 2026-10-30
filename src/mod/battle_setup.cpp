@@ -69,6 +69,14 @@ uint64_t ReadSettingsDetour(uint8_t* self, void* a2, void* a3, void* a4)
     g_creations++;
     LogStack("ReadSettings", reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
     ApplyPending("at battle creation");
+    // Used up: the battle jumped into has its setup and its stage (requested
+    // before it is created). Left pending, every later battle the player
+    // starts (Arcade, Versus, Training) got them: the last session's stage
+    // in every stage request (even the menus' BLK), and after Battle now Ryu
+    // and Ken. A session sets both again before each match's jump.
+    if (HasPendingSetup() || !PendingStage().empty()) Log("battle setup: pending setup and stage used up");
+    ClearPendingSetup();
+    SetPendingStage("");
     return g_origReadSettings(self, a2, a3, a4);
 }
 

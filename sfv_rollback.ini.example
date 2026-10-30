@@ -23,9 +23,10 @@ multi_instance=0
 offline=1
 
 [probe]
-; F5 copy state out, F9 copy it back (copy mode, what netplay uses)
-; F6 remember the last ring frame, F10 restore it with the game's own Restore
-savestate_hotkeys=1
+; Debugging: F5 copy state out, F9 copy it back (copy mode, what netplay uses)
+; F6 remember the last ring frame, F10 restore it with the game's own Restore.
+; They act in any battle, offline ones too: off for players.
+debug_hotkeys=0
 ; Offline the game opens no snapshot frames, so its Store tasks do nothing.
 ; 1 = open frames with the mod's own ids so the ring fills (needed for F6/F10).
 force_offline_frames=0

@@ -233,7 +233,10 @@ Config LoadConfig(const std::wstring& path, const std::wstring& dllDir, const st
     else if (mode == L"playback") c.mode = Mode::Playback;
     else c.mode = Mode::Probe;
 
-    c.savestateHotkeys = ReadInt(path, L"probe", L"savestate_hotkeys", 1) != 0;
+    // Off unless asked for: F9 / F10 load states in any battle, offline ones
+    // too. Releases up to 0.1.3 shipped savestate_hotkeys=1; updates keep the
+    // ini, so that key is no longer read.
+    c.savestateHotkeys = ReadInt(path, L"probe", L"debug_hotkeys", 0) != 0;
     c.forceOfflineFrames = ReadInt(path, L"probe", L"force_offline_frames", 0) != 0;
     c.forceEnable = ReadInt(path, L"probe", L"force_enable", 0) != 0;
     c.offlineBoot = ReadInt(path, L"boot", L"offline", 1) != 0;

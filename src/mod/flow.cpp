@@ -1342,6 +1342,12 @@ void SetPendingStage(const std::string& code)
     g_pendingStage = code;
 }
 
+std::string PendingStage()
+{
+    std::lock_guard lock(g_stageMutex);
+    return g_pendingStage;
+}
+
 std::atomic<int> g_jumpGeneration{0};
 std::atomic<int> g_jumpRetries{0};
 constexpr int kJumpRetries = 5;
