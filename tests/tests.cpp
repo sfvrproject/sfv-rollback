@@ -522,6 +522,22 @@ void TestLobbyMessages()
     CHECK(back && back->type == lobby::Type::Hello && back->nonce == 77 && back->build == hello.build &&
           back->role == lobby::Role::Spectator && back->name == "Watcher");
 
+    // UTF-8 names: kept whole up to kMaxName bytes, longer ones cut between
+    // characters (40 x "あ", 3 bytes each: 32 of them fit in 96 bytes).
+    hello.name = "Ćwiek Ölçer 東京 Борис";
+    bytes = lobby::Encode(hello);
+    back = lobby::Decode(bytes.data(), bytes.size());
+    CHECK(back && back->name == hello.name);
+    hello.name.clear();
+    for (int i = 0; i < 40; i++) hello.name += "\xE3\x81\x82";
+    bytes = lobby::Encode(hello);
+    back = lobby::Decode(bytes.data(), bytes.size());
+    CHECK(back && back->name.size() == 96 && back->name == hello.name.substr(0, 96));
+    hello.name = std::string(95, 'a') + "\xE3\x81\x82"; // the last character would straddle the limit
+    bytes = lobby::Encode(hello);
+    back = lobby::Decode(bytes.data(), bytes.size());
+    CHECK(back && back->name == std::string(95, 'a'));
+
     // The session's state: seats with names, picks and flags.
     lobby::Message state;
     state.type = lobby::Type::SessionState;

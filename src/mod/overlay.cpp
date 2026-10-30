@@ -189,6 +189,10 @@ ImFont* g_fontHeading = nullptr; // bold italic, as the menus' entries
 ImFont* g_fontBig = nullptr;     // match codes
 ImFont* g_fontSmall = nullptr;   // the player bars' details
 ImFont* g_fontTiny = nullptr;    // ... their frame rate and rollback numbers
+// Characters beyond Latin-1 that names have shown (NoteText): the fonts get
+// them from Windows' fonts on the next build, so names in any script draw.
+std::vector<ImWchar> g_extraChars;
+bool g_fontsDirty = false;
 
 float UiScaleFor(float height) { return std::max(1.0f, height / 720.0f); }
 
@@ -259,9 +263,30 @@ void ApplyTheme(float scale)
     c[ImGuiCol_NavWindowingDimBg] = c[ImGuiCol_ModalWindowDimBg] = Rgb(0, 0, 0, 0.5f);
 }
 
+// Notes the characters of a text the panel shows (names: seats, status
+// lines): any beyond Latin-1 the fonts lack makes them build again with it.
+void NoteText(const std::string& text)
+{
+    for (size_t i = 0; i < text.size();) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        const int len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1;
+        uint32_t cp = len == 1 ? c : len == 2 ? (c & 0x1F) : len == 3 ? (c & 0x0F) : (c & 0x07);
+        for (int k = 1; k < len && i + k < text.size(); k++) cp = (cp << 6) | (static_cast<unsigned char>(text[i + k]) & 0x3F);
+        i += len;
+        // Latin-1 is in the fonts already; ImWchar holds the Basic Multilingual Plane.
+        if (cp <= 0xFF || cp > 0xFFFF || g_extraChars.size() >= 4096) continue;
+        const auto at = std::lower_bound(g_extraChars.begin(), g_extraChars.end(), static_cast<ImWchar>(cp));
+        if (at != g_extraChars.end() && *at == cp) continue;
+        g_extraChars.insert(at, static_cast<ImWchar>(cp));
+        g_fontsDirty = true;
+    }
+}
+
 // Fonts for the screen's size (built again when it changes): Bahnschrift
 // for text, Segoe UI Bold Italic for titles and tiles, as the menus' bold
-// italic entries; ImGui's own font when Windows lacks them.
+// italic entries; ImGui's own font when Windows lacks them. Each takes the
+// characters of g_extraChars from Windows' fonts for other scripts (the
+// first that has a character wins).
 void BuildFonts(float scale)
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -269,18 +294,72 @@ void BuildFonts(float scale)
     char dir[MAX_PATH] = {};
     GetWindowsDirectoryA(dir, MAX_PATH);
     const std::string fonts = std::string(dir) + "\\Fonts\\";
+    // The fallback fonts, read once and kept (the atlas only points at them).
+    struct Fallback {
+        const char* file;
+        std::vector<uint8_t> data;
+        bool tried = false;
+    };
+    static Fallback fallbacks[] = {
+        {"segoeui.ttf"},  // Latin extended, Greek, Cyrillic, Hebrew, Arabic
+        {"YuGothM.ttc"},  // Japanese
+        {"msgothic.ttc"}, // ... older Windows
+        {"malgun.ttf"},   // Korean
+        {"msyh.ttc"},     // Chinese
+        {"seguisym.ttf"}, // symbols
+    };
+    static ImVector<ImWchar> extraRanges;
+    extraRanges.clear();
+    if (!g_extraChars.empty()) {
+        ImFontGlyphRangesBuilder builder;
+        for (ImWchar c : g_extraChars) builder.AddChar(c);
+        builder.BuildRanges(&extraRanges);
+    }
+    auto inBlock = [](ImWchar c, const char* file) {
+        const std::string f = file;
+        if (f == "segoeui.ttf" || f == "seguisym.ttf") return true;
+        const bool cjk = (c >= 0x2E80 && c <= 0x9FFF) || (c >= 0xF900 && c <= 0xFAFF) || (c >= 0xFF00 && c <= 0xFFEF);
+        if (f == "malgun.ttf") return (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x1100 && c <= 0x11FF) || (c >= 0x3130 && c <= 0x318F);
+        return cjk;
+    };
+    auto mergeExtras = [&](float px) {
+        if (extraRanges.empty()) return;
+        for (Fallback& fb : fallbacks) {
+            // Only fonts for a script some name uses are read.
+            if (!std::any_of(g_extraChars.begin(), g_extraChars.end(), [&](ImWchar c) { return inBlock(c, fb.file); })) continue;
+            if (!fb.tried) {
+                fb.tried = true;
+                if (FILE* f = std::fopen((fonts + fb.file).c_str(), "rb")) {
+                    std::fseek(f, 0, SEEK_END);
+                    fb.data.resize(static_cast<size_t>(std::max(0L, std::ftell(f))));
+                    std::fseek(f, 0, SEEK_SET);
+                    if (std::fread(fb.data.data(), 1, fb.data.size(), f) != fb.data.size()) fb.data.clear();
+                    std::fclose(f);
+                }
+            }
+            if (fb.data.empty()) continue;
+            ImFontConfig cfg;
+            cfg.MergeMode = true;
+            cfg.FontDataOwnedByAtlas = false;
+            cfg.OversampleH = 2;
+            io.Fonts->AddFontFromMemoryTTF(fb.data.data(), static_cast<int>(fb.data.size()), px * scale, &cfg, extraRanges.Data);
+        }
+    };
     auto add = [&](const char* file, float px) -> ImFont* {
         const std::string path = fonts + file;
         if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES) return nullptr;
         ImFontConfig cfg;
         cfg.OversampleH = 2;
-        return io.Fonts->AddFontFromFileTTF(path.c_str(), px * scale, &cfg);
+        ImFont* font = io.Fonts->AddFontFromFileTTF(path.c_str(), px * scale, &cfg);
+        if (font) mergeExtras(px);
+        return font;
     };
     ImFont* body = add("bahnschrift.ttf", 17);
     if (!body) {
         ImFontConfig cfg;
         cfg.SizePixels = 13 * scale;
         body = io.Fonts->AddFontDefault(&cfg);
+        mergeExtras(13);
     }
     g_fontHeading = add("segoeuiz.ttf", 20);
     if (!g_fontHeading) g_fontHeading = body;
@@ -2383,9 +2462,16 @@ void Draw(IDXGISwapChain* swapChain)
     io.MouseDrawCursor = visible || g_voting; // the game hides the system cursor
     // Fonts for the game's resolution (1.0 at 720 lines): again when it
     // changed (last frame's size; the backend makes the new atlas).
-    if (io.DisplaySize.y > 0 && std::abs(UiScaleFor(io.DisplaySize.y) - g_builtScale) > 0.05f) {
+    // ... and when a name brings characters the fonts lack.
+    for (const auto& seat : view.seats) NoteText(seat.name);
+    NoteText(view.status);
+    NoteText(view.result);
+    NoteText(NetOptions().name);
+    const bool rescale = io.DisplaySize.y > 0 && std::abs(UiScaleFor(io.DisplaySize.y) - g_builtScale) > 0.05f;
+    if (rescale || (g_fontsDirty && g_builtScale > 0)) {
+        g_fontsDirty = false;
         ImGui_ImplDX11_InvalidateDeviceObjects();
-        BuildFonts(UiScaleFor(io.DisplaySize.y));
+        BuildFonts(rescale ? UiScaleFor(io.DisplaySize.y) : g_builtScale);
     }
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();

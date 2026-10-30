@@ -90,7 +90,9 @@ MatchSetup GetSetup(In& in)
 
 void PutName(Out& o, const std::string& name)
 {
-    const size_t n = std::min(name.size(), kMaxName);
+    // Cut between characters, not inside a UTF-8 sequence.
+    size_t n = std::min(name.size(), kMaxName);
+    while (n > 0 && n < name.size() && (static_cast<unsigned char>(name[n]) & 0xC0) == 0x80) n--;
     o.Put(static_cast<uint8_t>(n));
     o.b.insert(o.b.end(), name.begin(), name.begin() + n);
 }

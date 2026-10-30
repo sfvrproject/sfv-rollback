@@ -9,6 +9,10 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Player names in any script: names are read from the ini files as UTF-8,
+  sent whole up to 96 bytes (cut between characters, never inside one), and
+  the panel draws them with Windows' fonts for other scripts (accented Latin,
+  Greek, Cyrillic, Japanese, Korean, Chinese). Lobby protocol 7.
 - Button Settings now apply online: netplay sent the keys before the game
   applies them, so custom layouts and shortcut buttons (3P, 3K, two-button
   shortcuts) came out wrong. Keyboard players, who map keys to pad buttons

@@ -2,7 +2,11 @@
 
 #include <windows.h>
 
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cwchar>
+#include <string>
 
 namespace sfv::mod {
 
@@ -13,6 +17,63 @@ std::string Ascii(const std::wstring& w)
     std::string s;
     for (wchar_t c : w) s += c < 128 ? static_cast<char>(c) : '?';
     return s;
+}
+
+// A value as UTF-8, read from the file itself: Windows' ini functions read a
+// file without a BOM in the system's code page, which mangles UTF-8 (what
+// Notepad saves). A UTF-16 file (BOM) works too. "" when missing; `found`
+// says whether the key is there.
+std::string ReadUtf8(const std::wstring& path, const std::string& section, const std::string& key, bool* found = nullptr)
+{
+    if (found) *found = false;
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return "";
+    std::string bytes;
+    char buf[4096];
+    DWORD got = 0;
+    while (ReadFile(f, buf, sizeof(buf), &got, nullptr) && got) bytes.append(buf, got);
+    CloseHandle(f);
+    if (bytes.size() >= 2 && static_cast<unsigned char>(bytes[0]) == 0xFF && static_cast<unsigned char>(bytes[1]) == 0xFE) {
+        std::wstring w(reinterpret_cast<const wchar_t*>(bytes.data() + 2), (bytes.size() - 2) / 2);
+        const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+        std::string u(static_cast<size_t>(n), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), u.data(), n, nullptr, nullptr);
+        bytes = u;
+    }
+    else if (bytes.size() >= 3 && bytes.compare(0, 3, "\xEF\xBB\xBF") == 0) {
+        bytes.erase(0, 3);
+    }
+    auto trim = [](std::string s) {
+        const size_t a = s.find_first_not_of(" \t\r");
+        const size_t b = s.find_last_not_of(" \t\r");
+        return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
+    };
+    auto same = [](const std::string& a, const std::string& b) { return _stricmp(a.c_str(), b.c_str()) == 0; };
+    bool inSection = false;
+    for (size_t at = 0; at < bytes.size();) {
+        size_t end = bytes.find('\n', at);
+        if (end == std::string::npos) end = bytes.size();
+        const std::string line = trim(bytes.substr(at, end - at));
+        at = end + 1;
+        if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+        if (line[0] == '[') {
+            const size_t close = line.find(']');
+            inSection = close != std::string::npos && same(trim(line.substr(1, close - 1)), section);
+            continue;
+        }
+        const size_t eq = line.find('=');
+        if (!inSection || eq == std::string::npos || !same(trim(line.substr(0, eq)), key)) continue;
+        if (found) *found = true;
+        return trim(line.substr(eq + 1));
+    }
+    return "";
+}
+
+std::string FromHex(const std::string& hex)
+{
+    std::string out;
+    for (size_t i = 0; i + 1 < hex.size(); i += 2) out += static_cast<char>(std::strtol(hex.substr(i, 2).c_str(), nullptr, 16));
+    return out;
 }
 
 std::wstring ReadString(const std::wstring& path, const wchar_t* section, const wchar_t* key, const wchar_t* def)
@@ -57,7 +118,14 @@ void ReadNetplayChoices(const std::wstring& path, NetplayOptions& n, bool onlyPr
     // prepared); resolved against the stage table when hosting.
     if (has(L"stage")) n.stageCode = Ascii(ReadString(path, L"netplay", L"stage", L""));
     // Set in the panel (the main file has them in [weyve] and [netplay]).
-    if (onlyPresent && has(L"name")) n.name = Ascii(ReadString(path, L"netplay", L"name", L""));
+    // The panel keeps a name outside ASCII as hex (name_utf8): Windows' ini
+    // functions write a file without a BOM in the system's code page.
+    if (onlyPresent) {
+        bool found = false;
+        const std::string hex = ReadUtf8(path, "netplay", "name_utf8", &found);
+        if (found && !hex.empty()) n.name = FromHex(hex);
+        else if (has(L"name")) n.name = ReadUtf8(path, "netplay", "name");
+    }
     if (onlyPresent && has(L"allow_spectators")) n.allowSpectators = ReadInt(path, L"netplay", L"allow_spectators", 1) != 0;
     // The Debug tab's server switch, and the servers used before.
     if (onlyPresent && has(L"server")) {
@@ -96,7 +164,16 @@ void SaveNetplayChoices(const std::wstring& path, const NetplayOptions& n, const
     Write(path, L"variant", std::to_string(n.pick.variation));
     Write(path, L"stage", stage);
     Write(path, L"input_delay", std::to_string(n.inputDelay));
-    Write(path, L"name", n.name);
+    // ASCII as it is; anything else as hex in name_utf8 (see ReadNetplayChoices).
+    const bool ascii = std::all_of(n.name.begin(), n.name.end(), [](char ch) { return static_cast<unsigned char>(ch) < 0x80; });
+    std::string hex;
+    for (unsigned char ch : n.name) {
+        char two[3];
+        std::snprintf(two, sizeof(two), "%02x", ch);
+        hex += two;
+    }
+    Write(path, L"name", ascii ? n.name : "");
+    Write(path, L"name_utf8", ascii ? "" : hex);
     Write(path, L"allow_spectators", n.allowSpectators ? "1" : "0");
     Write(path, L"show_fps", n.showOwnFps ? "1" : "0");
     Write(path, L"server", n.savedServer);
@@ -133,7 +210,7 @@ Config LoadConfig(const std::wstring& path, const std::wstring& dllDir, const st
     n.udp = ReadString(path, L"netplay", L"transport", L"weyve") == L"udp";
     n.server = Ascii(ReadString(path, L"weyve", L"server", L""));
     if (n.server.empty()) n.server = kDefaultServer;
-    n.name = Ascii(ReadString(path, L"weyve", L"name", L""));
+    n.name = ReadUtf8(path, "weyve", "name"); // UTF-8 (Notepad's default)
     n.allowSpectators = ReadInt(path, L"netplay", L"allow_spectators", 1) != 0;
     n.udpPort = static_cast<uint16_t>(ReadInt(path, L"netplay", L"udp_port", 47001));
     const std::wstring host = ReadString(path, L"netplay", L"udp_host", L"127.0.0.1");
