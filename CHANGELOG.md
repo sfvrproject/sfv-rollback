@@ -12,8 +12,12 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 - The panel opened during the title screen read the game's character lists
   before they were complete, and kept them: characters showed as codes
   ("Z34"), costumes as "costume 0" and V-Skills without names (seen by a
-  spectator; a player's own lists could miss characters too). The lists are
+  spectator, also in the post-match windows; a player's own lists could
+  miss characters too). The lists are
   now read once the game is past its start.
+- A spectator could open the game's own Results Menu over a watched
+  match's results screen (any press, even the one opening the panel): the
+  game now gets no input there, as the players' vote already did for them.
 
 ## [0.1.4] - 2026-10-29
 

@@ -65,6 +65,10 @@ bool g_imgui = false;
 
 std::atomic<bool> g_visible{false};
 std::atomic<bool> g_voting{false};        // the post-match vote is up and takes input
+// A spectator over a watched match's results screen: the game gets no input
+// (a press there opens its own Results Menu, which players' votes keep shut
+// by taking the pads), but nothing is voted on here.
+std::atomic<bool> g_watchHold{false};
 std::atomic<HWND> g_inputWindow{nullptr}; // the window ImGui reads input for
 std::string g_build;                      // the mod's version (SetOverlayBuild)
 std::atomic<float> g_fps{0};              // presented frames per second (RenderFps)
@@ -2495,6 +2499,7 @@ void Draw(IDXGISwapChain* swapChain)
     // player chooses.
     const bool sides = (phase == NetView::Phase::PostMatch || (phase == NetView::Phase::Lobby && view.overResults)) && !g_visible;
     g_voting = sides && !view.spectator;
+    g_watchHold = sides && view.spectator;
     // Once the session goes into the battle the panel fades out and closes.
     static bool wasInBattle = false;
     static ULONGLONG panelFadeAt = 0;
@@ -2706,7 +2711,7 @@ bool OverlayVisible()
 
 bool OverlayTakesInput()
 {
-    return g_visible || g_voting;
+    return g_visible || g_voting || g_watchHold;
 }
 
 void SetVsync(bool on)
@@ -2772,7 +2777,7 @@ bool OverlayWndProc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
         if (g_input.size() < 1024) g_input.push_back({msg, wp, lp});
     }
     // Open: the game sees no keyboard or mouse (WM_INPUT is its raw mouse).
-    return (g_visible || g_voting) && (keyboard || mouse);
+    return (g_visible || g_voting || g_watchHold) && (keyboard || mouse);
 }
 
 void OverlayPad(unsigned user, const XINPUT_GAMEPAD& pad)
