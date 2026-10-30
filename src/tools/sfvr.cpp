@@ -2,6 +2,7 @@
 //
 //   sfvr info    <file> [-v]
 //   sfvr inputs  <file> [first] [last]
+//   sfvr presses <file> <player 0|1>
 //   sfvr diff    <a.sfvr> <b.sfvr>
 //   sfvr peers   <a.sfvr> <b.sfvr> [--initial | --pointers [--max-frame N]] [--raw] [--write noise.txt] [--show region]
 //   sfvr verify  <file> [--stress N] [--every K] [--dump out.bin] [--mock-bug B] [--machine-value V]
@@ -38,6 +39,7 @@ int Usage()
                  "usage:\n"
                  "  sfvr info    <file> [-v]\n"
                  "  sfvr inputs  <file> [first] [last]\n"
+                 "  sfvr presses <file> <player 0|1>\n"
                  "  sfvr diff    <a.sfvr> <b.sfvr>\n"
                  "  sfvr peers   <a.sfvr> <b.sfvr> [--initial | --pointers [--max-frame N]] [--raw] [--write noise.txt] [--show region]\n"
                  "  sfvr verify  <file> [--stress N] [--every K] [--dump out.bin]\n"
@@ -174,6 +176,30 @@ int CmdInputs(int argc, char** argv)
         std::printf("%6d  %-15s %-15s %08x%s\n", f, InputText(rf.inputs[f].p[0]).c_str(),
                     InputText(rf.inputs[f].p[1]).c_str(), rf.FrameChecksum(f), f > rf.finalThrough ? "  (unconfirmed)" : "");
     }
+    return 0;
+}
+
+// A player's button presses: the button bits (SFV: X..RT, 0x0FF0; directions
+// and start left out) each time they go from none to some, in hex, in order
+// (scripts\layout-test.ps1 compares them with each PC's layout).
+int CmdPresses(int argc, char** argv)
+{
+    if (argc < 2) return Usage();
+    ReplayFile rf;
+    if (!Load(argv[0], rf)) return 1;
+    const int player = std::atoi(argv[1]) == 1 ? 1 : 0;
+    constexpr PackedInput kButtons = 0x0FF0;
+    PackedInput before = 0;
+    bool first = true;
+    for (int f = 0; f < rf.FrameCount(); f++) {
+        const PackedInput now = rf.inputs[f].p[player] & kButtons;
+        if (now && !before) {
+            std::printf(first ? "%x" : " %x", now);
+            first = false;
+        }
+        before = now;
+    }
+    std::printf("\n");
     return 0;
 }
 
@@ -691,6 +717,7 @@ int main(int argc, char** argv)
     const std::string cmd = argv[1];
     if (cmd == "info") return CmdInfo(argc - 2, argv + 2);
     if (cmd == "inputs") return CmdInputs(argc - 2, argv + 2);
+    if (cmd == "presses") return CmdPresses(argc - 2, argv + 2);
     if (cmd == "diff") return CmdDiff(argc - 2, argv + 2);
     if (cmd == "peers") return CmdLearnPeers(argc - 2, argv + 2);
     if (cmd == "changes") return CmdChanges(argc - 2, argv + 2);

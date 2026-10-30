@@ -153,6 +153,10 @@ constexpr uint32_t kPadStride = 0x200;
 constexpr uint32_t kPadDown = 0x04;
 constexpr uint32_t kPadBattle = 0x14;
 constexpr uint32_t kPadStateBegin = 0x04, kPadStateEnd = 0x28;
+// The live Button Settings of a pad: what each pad key (EKWKeyConfigPadKeyId
+// 0..15) gives as default-layout keys, shortcuts expanded (default: X 0x10,
+// LB 0x230 = 3P). Built from the player's settings; `layout` rewrites it for tests.
+constexpr uint32_t kPadKeyTable = 0x30;
 using InputUpdateFn = uint64_t (*)(void* manager, float deltaSeconds);
 InputUpdateFn g_origInputUpdate = nullptr;
 std::atomic<PackedInput> g_mappedInput{0};
@@ -700,6 +704,100 @@ void RunNetCommand(const std::string& line)
         for (size_t i = 0; i + 1 < hex.size(); i += 2) bytes.push_back(static_cast<uint8_t>(std::stoi(hex.substr(i, 2), nullptr, 16)));
         FindBytes(bytes);
     }
+    else if (cmd == "layout") {
+        // layout [16 hex values]: pad 0's live Button Settings table (kPadKeyTable),
+        // logged, or replaced for this run (testing: different layouts per PC).
+        auto* pads = *reinterpret_cast<uint8_t* const*>(g_imageBase + kInputManager + 8);
+        if (!pads || !IsReadable(pads, kPadStride)) return;
+        auto* table = reinterpret_cast<uint32_t*>(pads + kPadKeyTable);
+        std::string word;
+        uint32_t values[16];
+        int count = 0;
+        while (count < 16 && ss >> word) values[count++] = static_cast<uint32_t>(std::stoul(word, nullptr, 16));
+        if (count == 16) std::memcpy(table, values, sizeof(values));
+        std::string text;
+        for (int k = 0; k < 16; k++) {
+            char hex[12];
+            std::snprintf(hex, sizeof(hex), " %x", table[k]);
+            text += hex;
+        }
+        Log("layout: pad 0 keys up..select give%s%s", text.c_str(), count == 16 ? " (set)" : "");
+    }
+    else if (cmd == "keys") {
+        // keys <key names> [hold ms]: presses each key in turn through the
+        // system (to the game when its window is in front; testing a PC's
+        // keyboard layout from a script). Names: letters, digits, up/down/left/right, enter.
+        std::vector<WORD> vks;
+        int holdMs = 150;
+        std::string word;
+        while (ss >> word) {
+            if (std::isdigit(static_cast<unsigned char>(word[0])) && word.size() > 1) holdMs = std::atoi(word.c_str());
+            else if (word == "up") vks.push_back(VK_UP);
+            else if (word == "down") vks.push_back(VK_DOWN);
+            else if (word == "left") vks.push_back(VK_LEFT);
+            else if (word == "right") vks.push_back(VK_RIGHT);
+            else if (word == "enter") vks.push_back(VK_RETURN);
+            else if (word.size() == 1) vks.push_back(static_cast<WORD>(std::toupper(static_cast<unsigned char>(word[0]))));
+        }
+        // The game's window to the front first (an Alt tap lets a process that
+        // is not in front take it, as win.ps1 does; joining the front window's
+        // input thread too). The real foreground: always_active's hook says
+        // the game's window.
+        HWND w = g_gameWindow;
+        auto realFront = [] { return g_origForeground ? g_origForeground() : GetForegroundWindow(); };
+        for (int attempt = 0; w && attempt < 3 && realFront() != w; attempt++) {
+            if (IsIconic(w)) ShowWindow(w, SW_RESTORE);
+            const DWORD front = GetWindowThreadProcessId(realFront(), nullptr);
+            const DWORD self = GetCurrentThreadId();
+            const bool attached = front && front != self && AttachThreadInput(self, front, TRUE);
+            INPUT alt[2] = {};
+            alt[0].type = alt[1].type = INPUT_KEYBOARD;
+            alt[0].ki.wVk = alt[1].ki.wVk = VK_MENU;
+            alt[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(2, alt, sizeof(INPUT));
+            BringWindowToTop(w);
+            SetForegroundWindow(w);
+            if (attached) AttachThreadInput(self, front, FALSE);
+            Sleep(300);
+        }
+        const bool inFront = w && realFront() == w;
+        UINT accepted = 0;
+        for (WORD vk : vks) {
+            INPUT in[2] = {};
+            in[0].type = in[1].type = INPUT_KEYBOARD;
+            in[0].ki.wVk = in[1].ki.wVk = vk;
+            in[0].ki.wScan = in[1].ki.wScan = static_cast<WORD>(MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
+            in[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            // 0 when the desktop takes no input (locked, or a disconnected
+            // remote desktop session).
+            accepted += SendInput(1, &in[0], sizeof(INPUT));
+            Sleep(holdMs);
+            SendInput(1, &in[1], sizeof(INPUT));
+            Sleep(150);
+        }
+        Log("keys: %u of %zu pressed (game window %s)", accepted, vks.size(), inFront ? "in front" : "not in front");
+    }
+    else if (cmd == "input2") {
+        // input2 <key> <value> | input2 restore: a key of [AssignKeyboard] in
+        // the game's Input2.ini (KeyboardKeys_N = a key name), from the next
+        // start; the first change keeps Input2.ini.sfvr-backup (testing).
+        wchar_t local[MAX_PATH] = {};
+        if (!GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH)) return;
+        const std::wstring path = std::wstring(local) + L"\\StreetFighterV\\Saved\\Config\\WindowsNoEditor\\Input2.ini";
+        const std::wstring backup = path + L".sfvr-backup";
+        std::string key, value;
+        ss >> key >> value;
+        if (key == "restore") {
+            const bool ok = CopyFileW(backup.c_str(), path.c_str(), FALSE) && DeleteFileW(backup.c_str());
+            Log("input2: %s", ok ? "restored from the backup" : "no backup to restore");
+            return;
+        }
+        if (key.empty() || value.empty()) return;
+        CopyFileW(path.c_str(), backup.c_str(), TRUE); // only the first time
+        const bool ok = WritePrivateProfileStringW(L"AssignKeyboard", std::wstring(key.begin(), key.end()).c_str(),
+                                                   std::wstring(value.begin(), value.end()).c_str(), path.c_str());
+        Log("input2: [AssignKeyboard] %s=%s %s (from the next start)", key.c_str(), value.c_str(), ok ? "set" : "failed");
+    }
     else if (cmd == "owner") {
         // owner <hex address>: the UObject whose memory holds it, and the offset (research).
         unsigned long long address = 0;
@@ -1000,7 +1098,7 @@ bool Parse(const std::string& line, Step& step)
         return !ss.fail();
     }
     if (cmd == "host" || cmd == "join" || cmd == "spectate" || cmd == "server" || cmd == "packlogs" || cmd == "update" || cmd == "name" || cmd == "delay" || cmd == "transport" || cmd == "ready" || cmd == "choose" || cmd == "leave" || cmd == "netsim" || cmd == "mash" || cmd == "dumps" || cmd == "recordings" || cmd == "pick" ||
-        cmd == "stage" || cmd == "netstatus" || cmd == "battle" || cmd == "setstage" || cmd == "park" || cmd == "peek" || cmd == "battlenow" || cmd == "findptr" || cmd == "findbytes" || cmd == "keyconfigs" || cmd == "enuminfo" || cmd == "owner" || cmd == "members" || cmd == "worldctx" || cmd == "poke" || cmd == "stages" || cmd == "nextstage" || cmd == "recdiff" || cmd == "outsidetest" || cmd == "tasklist" || cmd == "phases" || cmd == "regions" || cmd == "costumes" || cmd == "variants" || cmd == "presets" || cmd == "freeplay" || cmd == "relayonly" || cmd == "vsync" || cmd == "uniqueparam" || cmd == "datatable" || cmd == "replay" || cmd == "classes" || cmd == "classinfo" || cmd == "named" || cmd == "scene" || cmd == "relocate" || cmd == "menu" || cmd == "overlay" || cmd == "charas" || cmd == "find" || cmd == "watchregion" || cmd == "packages" || cmd == "preload" || cmd == "charcache" || cmd == "drawlog" || cmd == "inputlog" || cmd == "mappedlog" || cmd == "versions" || cmd == "uipads" || cmd == "uistart") {
+        cmd == "stage" || cmd == "netstatus" || cmd == "battle" || cmd == "setstage" || cmd == "park" || cmd == "peek" || cmd == "battlenow" || cmd == "findptr" || cmd == "findbytes" || cmd == "keyconfigs" || cmd == "enuminfo" || cmd == "owner" || cmd == "layout" || cmd == "keys" || cmd == "input2" || cmd == "members" || cmd == "worldctx" || cmd == "poke" || cmd == "stages" || cmd == "nextstage" || cmd == "recdiff" || cmd == "outsidetest" || cmd == "tasklist" || cmd == "phases" || cmd == "regions" || cmd == "costumes" || cmd == "variants" || cmd == "presets" || cmd == "freeplay" || cmd == "relayonly" || cmd == "vsync" || cmd == "uniqueparam" || cmd == "datatable" || cmd == "replay" || cmd == "classes" || cmd == "classinfo" || cmd == "named" || cmd == "scene" || cmd == "relocate" || cmd == "menu" || cmd == "overlay" || cmd == "charas" || cmd == "find" || cmd == "watchregion" || cmd == "packages" || cmd == "preload" || cmd == "charcache" || cmd == "drawlog" || cmd == "inputlog" || cmd == "mappedlog" || cmd == "versions" || cmd == "uipads" || cmd == "uistart") {
         step.kind = Step::Net;
         step.line = line;
         return true;
