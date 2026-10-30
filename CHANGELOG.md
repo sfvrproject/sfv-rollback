@@ -7,6 +7,14 @@ entry here. Newest first; the format follows [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- The panel opened during the title screen read the game's character lists
+  before they were complete, and kept them: characters showed as codes
+  ("Z34"), costumes as "costume 0" and V-Skills without names (seen by a
+  spectator; a player's own lists could miss characters too). The lists are
+  now read once the game is past its start.
+
 ## [0.1.4] - 2026-10-29
 
 Keyboard and custom button layouts now work online, names can use any

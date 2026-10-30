@@ -708,6 +708,12 @@ std::atomic<bool> g_readingTables{false};
 void LoadTables()
 {
     if (g_tables.loaded) return;
+    // Not while the game is still starting (boot, title): its character data
+    // is only partly there, and a read then came out short but not empty and
+    // stayed (a spectator who joined from the title saw "KEN", "Z34",
+    // "costume 0", V-Skills without names for the whole session).
+    const std::string scene = CurrentScene();
+    if (scene.empty() || scene == "BootState" || scene == "InitialState") return;
     {
         std::lock_guard lock(g_tablesMutex);
         if (g_readTables) {
